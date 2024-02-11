@@ -194,7 +194,10 @@ impl ScrabbleGame {
         }
 
         self.current_player += 1;
-        self.current_player %= self.players.len();
+        if self.current_player >= self.players.len() {
+            self.current_player = 0;
+            self.passes = 0;
+        }
         self.turn += 1;
     }
 
