@@ -165,6 +165,15 @@ impl ScrabbleBoard {
         self.square_from_coords_unchecked(x, y).mult
     }
 
+    pub fn clear_tentative(&mut self) -> Vec<char> {
+        let mut cleared = Vec::new();
+        for pos in self.tentative.clone() {
+            cleared.push(self.square_mut_unchecked(&pos).clear_char().unwrap());
+        }
+        self.tentative.clear();
+        cleared
+    }
+
     fn square_mut_from_coords_unchecked(&mut self, x: usize, y: usize) -> &mut Square {
         self.squares.get_mut(Self::coords_to_index(x, y)).unwrap()
     }
