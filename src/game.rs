@@ -338,12 +338,21 @@ impl cursive::View for ScrabbleGame {
                     Ok(words_and_scores) => {
                         let score_tot = words_and_scores.iter().map(|(_, score)| score).sum();
                         self.current_player_mut().add_score(score_tot);
-                        self.log.push(format!(
-                            "Player {} played {:?}, {} points total.",
-                            self.current_player + 1,
-                            words_and_scores,
-                            score_tot,
-                        ));
+                        self.log.push(if words_and_scores.len() == 1 {
+                            format!(
+                                "Player {} played {} for {} points.",
+                                self.current_player + 1,
+                                words_and_scores.iter().next().unwrap().0,
+                                score_tot
+                            )
+                        } else {
+                            format!(
+                                "Player {} played {:?}, {} points total.",
+                                self.current_player + 1,
+                                words_and_scores,
+                                score_tot,
+                            )
+                        });
                         self.next_turn();
                     }
                     Err(e) => self.log.push(e),
