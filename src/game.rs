@@ -136,11 +136,11 @@ impl ScrabbleGame {
                 not_accepted.push(word);
                 continue;
             }
-            let mut score = 0;
+            let mut word_score = 0;
             let mut word_mults = Vec::new();
             for square in squares {
                 let letter_score = Self::score_of(square.ch.unwrap());
-                score += match square.mult {
+                word_score += match square.mult {
                     None => letter_score,
                     Some(word_mult @ (Multiplier::Dw | Multiplier::Tw)) => {
                         word_mults.push(word_mult);
@@ -155,7 +155,7 @@ impl ScrabbleGame {
                 word,
                 word_mults
                     .iter()
-                    .fold(score, |acc, mult| acc * mult.as_factor()),
+                    .fold(word_score, |acc, mult| acc * mult.as_factor()),
             ));
         }
 
