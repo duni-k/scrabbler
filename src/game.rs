@@ -1,5 +1,8 @@
 use crate::scrabble_event::ScrabbleEvent;
-use crate::{board::ScrabbleBoard, direction::Direction};
+use crate::{
+    board::{Multiplier, ScrabbleBoard, Square},
+    direction::Direction,
+};
 
 use std::{
     collections::HashMap,
@@ -10,7 +13,6 @@ use std::{
 
 use cursive::{
     event::{Event, EventResult},
-    theme::Effect,
     view::CannotFocus,
     Vec2,
 };
@@ -31,6 +33,7 @@ pub struct ScrabbleGame {
     letters_bag: Vec<char>,
     last_log: String,
     turn: usize,
+    passes: usize,
 }
 
 impl ScrabbleGame {
@@ -100,10 +103,10 @@ impl ScrabbleGame {
     }
 
     pub fn accepts(&self, word: &String) -> bool {
-        self.dict.contains(&word.bytes().collect::<Vec<u8>>())
+        self.dict.contains(word)
     }
 
-    fn score_of(letter: char) -> u8 {
+    fn score_of(letter: char) -> usize {
         match letter {
             'A' | 'E' | 'I' | 'L' | 'N' | 'O' | 'R' | 'S' | 'T' | 'U' => 1,
             'D' | 'G' => 2,
@@ -117,30 +120,77 @@ impl ScrabbleGame {
         }
     }
 
-    fn validate_and_score(&mut self) -> Result<HashMap<String, usize>, String> {
-        let player = &self.players[self.current_player];
-
-        if self.board.tentative.iter().is_empty() {
+    fn validate_placement(&mut self) -> Result<Vec<Vec<Square>>, String> {
+        if self.board.tentative.is_empty() {
             return Err("No letters placed.".to_string());
         }
 
-        let scores = HashMap::new();
+        if self.turn > 0 && !self.board.is_connected() {
+            return Err("Letters not connected to existing.".to_string());
+        }
 
-        Ok(scores)
+        Ok(self.board.collect_tentative()?)
     }
 
-    fn score(&mut self, mut letters: Vec<Vec2>, alignment: Alignment) -> (Vec<String>, usize) {
-        (vec!["TODO".to_string()], 0)
+    fn score(&mut self, word_squares: &Vec<Vec<Square>>) -> Result<Vec<(String, usize)>, String> {
+        let mut words_and_scores = Vec::new();
+        let mut not_accepted = Vec::new();
+        for squares in word_squares {
+            let word = squares.iter().map(|sq| sq.ch.unwrap()).collect();
+            if !self.accepts(&word) {
+                not_accepted.push(word);
+                continue;
+            }
+            let mut score = 0;
+            let mut word_mults = Vec::new();
+            for square in squares {
+                let letter_score = Self::score_of(square.ch.unwrap());
+                score += match square.mult {
+                    None => letter_score,
+                    Some(word_mult @ (Multiplier::Dw | Multiplier::Tw)) => {
+                        word_mults.push(word_mult);
+                        letter_score
+                    }
+                    Some(letter_mult @ (Multiplier::Dl | Multiplier::Tl)) => {
+                        letter_score * letter_mult.as_factor()
+                    }
+                };
+            }
+            words_and_scores.push((
+                word,
+                word_mults
+                    .iter()
+                    .fold(score, |acc, mult| acc * mult.as_factor()),
+            ));
+        }
+
+        if !not_accepted.is_empty() {
+            Err(format!("Words not accepted: {:?}.", not_accepted))
+        } else {
+            Ok(words_and_scores)
+        }
     }
 
     fn next_turn(&mut self) {
         let curr_player = &mut self.players[self.current_player];
-        self.board.place_tentative();
+        self.board.tentative.clear();
+        // check BINGO
+        let letters_placed = N_LETTERS - curr_player.letters.len();
+        if letters_placed == N_LETTERS {
+            curr_player.add_score(50);
+        }
         // clear those letters from the player pieces and get new ones
-        for _ in 0..(N_LETTERS - curr_player.letters.len()) {
+        for _ in 0..letters_placed {
             if let Some(letter) = self.letters_bag.pop() {
                 curr_player.letters.push(letter);
             }
+        }
+        // everyone passed
+        if self.passes >= self.players.len() {
+            // subtract letter scores of letters still held from player scores
+            // announce winner
+            // restart possible?
+            todo!();
         }
 
         self.current_player += 1;
@@ -148,28 +198,37 @@ impl ScrabbleGame {
         self.turn += 1;
     }
 
-    fn maybe_toggle_letter(&mut self, ch: char) {
-        if self.board.focused_char().is_some()
-            || self.board.tentative.contains_key(self.board.focus())
+    fn maybe_toggle_letter(&mut self, ch: char) -> Result<(), &str> {
+        if self.board.focused_char().is_some() && !self.board.tentative.contains(self.board.focus())
         {
-            return;
+            return Err("Other player already placed a letter there.");
         }
+
         if let Some(idx) = self
             .current_player()
             .letters
             .iter()
             .position(|&p_ch| p_ch == ch)
         {
-            self.board.tentative.insert(self.board.focus().clone(), ch);
+            if let Some(existing_ch) = self.board.place_focused(ch) {
+                self.current_player_mut().letters.push(existing_ch);
+            }
+            self.board.tentative.insert(self.board.focus().clone());
             self.current_player_mut().letters.remove(idx);
+        } else {
+            return Err("No such letter belonging to player.");
         }
+
+        Ok(())
     }
 
     fn remove_focused(&mut self) {
-        if let Some(&ch) = self.board.tentative.get(self.board.focus()).clone() {
-            self.current_player_mut().letters.push(ch);
-            let focus = self.board.focus().clone();
-            self.board.tentative.remove(&focus);
+        if self.board.tentative.contains(self.board.focus()) {
+            let focused_char = self.board.focused_char().unwrap().clone();
+            self.current_player_mut().letters.push(focused_char);
+            let focus = &self.board.focus().clone();
+            self.board.tentative.remove(focus);
+            self.board.clear_focused();
         }
     }
 
@@ -194,8 +253,11 @@ impl cursive::View for ScrabbleGame {
 
         printer.print((0, board.y + 2), &String::from("|"));
         for (x, ch) in self.players[self.current_player].letters.iter().enumerate() {
-            printer.print((4 * x + 2, board.y + 2), &String::from(*ch));
-            printer.print((4 * x + 4, board.y + 2), "|");
+            printer.print(
+                (6 * x + 2, board.y + 2),
+                &format!("{} {}", ch, Self::score_of(*ch)),
+            );
+            printer.print((6 * x + 6, board.y + 2), "|");
         }
         printer.print_hline(board.keep_y().map_y(|y| y + 3), board.x * 4, "—");
         printer.print((0, board.y + 4), &self.last_log);
@@ -211,22 +273,35 @@ impl cursive::View for ScrabbleGame {
                 self.board.move_focus(&direction);
                 self.current_player_mut().previous_move = Some(direction);
             }
-            ScrabbleEvent::Letter(ch) => self.maybe_toggle_letter(ch.to_ascii_uppercase()),
-            ScrabbleEvent::Delete => self.remove_focused(),
-            ScrabbleEvent::Confirm => match self.validate_and_score() {
-                Ok(scores) => {
-                    self.current_player_mut().add_score(scores.values().sum());
-                    self.last_log = format!(
-                        "Player {} played {:?}",
-                        self.current_player + 1,
-                        scores.keys().collect::<Vec<&String>>()
-                    );
-                    self.next_turn();
+            ScrabbleEvent::Letter(ch) => {
+                if let Err(e) = self.maybe_toggle_letter(ch.to_ascii_uppercase()) {
+                    self.last_log = e.to_string();
                 }
+            }
+            ScrabbleEvent::Delete => self.remove_focused(),
+            ScrabbleEvent::Confirm => match self.validate_placement() {
+                Ok(word_squares) => match self.score(&word_squares) {
+                    Ok(words_and_scores) => {
+                        let score_tot = words_and_scores.iter().map(|(_, score)| score).sum();
+                        self.current_player_mut().add_score(score_tot);
+                        self.last_log = format!(
+                            "Player {} played {:?}, {} points total.",
+                            self.current_player + 1,
+                            words_and_scores,
+                            score_tot,
+                        );
+                        self.next_turn();
+                    }
+                    Err(e) => self.last_log = e,
+                },
                 Err(e) => self.last_log = e.to_string(),
             },
             ScrabbleEvent::Undo => todo!(),
             ScrabbleEvent::Redo => todo!(),
+            ScrabbleEvent::Pass => {
+                self.passes += 1;
+                self.next_turn();
+            }
             ScrabbleEvent::Ignored => return EventResult::Ignored,
         };
 
@@ -255,24 +330,5 @@ impl Player {
 
     fn add_score(&mut self, score: ScrabbleScore) {
         self.score += score;
-    }
-}
-
-#[derive(PartialEq, Eq, Clone, Copy)]
-enum Alignment {
-    Horizontal,
-    Vertical,
-    Diagonal,
-}
-
-impl Alignment {
-    fn new(a: &Vec2, b: &Vec2) -> Self {
-        if a.x != b.x && a.y != b.y {
-            Self::Diagonal
-        } else if a.x == b.x {
-            Self::Vertical
-        } else {
-            Self::Horizontal
-        }
     }
 }
