@@ -5,7 +5,6 @@ use crate::{
 };
 
 use std::{
-    collections::HashMap,
     error::Error,
     fs::File,
     io::{self, BufRead},
@@ -31,7 +30,7 @@ pub struct ScrabbleGame {
     players: Vec<Player>,
     current_player: PlayerIndex,
     letters_bag: Vec<char>,
-    last_log: String,
+    log: Vec<String>,
     turn: usize,
     passes: usize,
 }
@@ -201,10 +200,10 @@ impl ScrabbleGame {
         self.turn += 1;
     }
 
-    fn maybe_toggle_letter(&mut self, ch: char) -> Result<(), &str> {
+    fn maybe_toggle_letter(&mut self, ch: char) {
         if self.board.focused_char().is_some() && !self.board.tentative.contains(self.board.focus())
         {
-            return Err("Other player already placed a letter there.");
+            self.log.push("Square occupied".to_string());
         }
 
         if let Some(idx) = self
@@ -219,10 +218,9 @@ impl ScrabbleGame {
             self.board.tentative.insert(self.board.focus().clone());
             self.current_player_mut().letters.remove(idx);
         } else {
-            return Err("No such letter belonging to player.");
+            self.log
+                .push("No such letter belonging to player.".to_string())
         }
-
-        Ok(())
     }
 
     fn remove_focused(&mut self) {
@@ -242,6 +240,17 @@ impl ScrabbleGame {
     fn current_player_mut(&mut self) -> &mut Player {
         self.players.get_mut(self.current_player).unwrap()
     }
+
+    fn exchange_letters(&mut self) {
+        let amount = self.board.tentative.len();
+        self.letters_bag.append(&mut self.board.clear_tentative());
+        self.letters_bag.shuffle(&mut rand::thread_rng());
+        for _ in 0..amount {
+            if let Some(letter) = self.letters_bag.pop() {
+                self.current_player_mut().letters.push(letter);
+            }
+        }
+    }
 }
 
 impl cursive::View for ScrabbleGame {
@@ -254,20 +263,68 @@ impl cursive::View for ScrabbleGame {
             &format!("Player {}'s turn. Letters:", self.current_player + 1),
         );
 
+        // Print player letters
         printer.print((0, board.y + 2), &String::from("|"));
-        for (x, ch) in self.players[self.current_player].letters.iter().enumerate() {
+        for (x, ch) in self.current_player().letters.iter().enumerate() {
             printer.print(
                 (6 * x + 2, board.y + 2),
                 &format!("{} {}", ch, Self::score_of(*ch)),
             );
             printer.print((6 * x + 6, board.y + 2), "|");
         }
+        printer.print(
+            (6 * self.current_player().letters.len() + 2, board.y + 2),
+            "->",
+        );
+        for (x, pos) in self.board.tentative.iter().enumerate() {
+            let ch = self.board.letter_at(&pos).unwrap();
+            printer.with_effect(cursive::theme::Effect::Dim, |printer| {
+                printer.print(
+                    (
+                        6 * x + 3 + (self.current_player().letters.len() * 6 + 2),
+                        board.y + 2,
+                    ),
+                    &format!("{} {}", ch, Self::score_of(ch)),
+                );
+                printer.print(
+                    (
+                        6 * x + 7 + (self.current_player().letters.len() * 6 + 2),
+                        board.y + 2,
+                    ),
+                    "|",
+                );
+            });
+        }
+
+        // Print log
         printer.print_hline(board.keep_y().map_y(|y| y + 3), board.x * 4, "—");
-        printer.print((0, board.y + 4), &self.last_log);
+        let mut lines = 0;
+        for entry in self.log.iter().rev() {
+            printer.print((0, board.y + 4 + lines), "-");
+            for line in entry.chars().collect::<Vec<char>>().chunks(board.x * 4 - 2) {
+                printer.print(
+                    (2, board.y + 4 + lines),
+                    &line.into_iter().collect::<String>(),
+                );
+                lines += 1;
+            }
+        }
+
+        printer.print_vline((board.x * 4 + 1, 0), board.y + 10, "|");
+        // Print player scores
+        for (i, player) in self.players.iter().enumerate() {
+            printer.with_effect(cursive::theme::Effect::Underline, |printer| {
+                printer.print((board.x * 4 + 2, i * 2), &format!("Player {}", i + 1));
+            });
+            printer.print(
+                (board.x * 4 + 2, i * 2 + 1),
+                &format!("{} pts", player.score),
+            );
+        }
     }
 
     fn required_size(&mut self, _: Vec2) -> Vec2 {
-        self.board.size.map_x(|x| x * 4).map_y(|y| y + 5)
+        self.board.size.map_x(|x| x * 4 + 20).map_y(|y| y + 10)
     }
 
     fn on_event(&mut self, event: Event) -> EventResult {
@@ -277,9 +334,7 @@ impl cursive::View for ScrabbleGame {
                 self.current_player_mut().previous_move = Some(direction);
             }
             ScrabbleEvent::Letter(ch) => {
-                if let Err(e) = self.maybe_toggle_letter(ch.to_ascii_uppercase()) {
-                    self.last_log = e.to_string();
-                }
+                self.maybe_toggle_letter(ch.to_ascii_uppercase()).to_owned()
             }
             ScrabbleEvent::Delete => self.remove_focused(),
             ScrabbleEvent::Confirm => match self.validate_placement() {
@@ -287,23 +342,35 @@ impl cursive::View for ScrabbleGame {
                     Ok(words_and_scores) => {
                         let score_tot = words_and_scores.iter().map(|(_, score)| score).sum();
                         self.current_player_mut().add_score(score_tot);
-                        self.last_log = format!(
+                        self.log.push(format!(
                             "Player {} played {:?}, {} points total.",
                             self.current_player + 1,
                             words_and_scores,
                             score_tot,
-                        );
+                        ));
                         self.next_turn();
                     }
-                    Err(e) => self.last_log = e,
+                    Err(e) => self.log.push(e),
                 },
-                Err(e) => self.last_log = e.to_string(),
+                Err(e) => self.log.push(e.to_string()),
             },
             ScrabbleEvent::Undo => todo!(),
             ScrabbleEvent::Redo => todo!(),
             ScrabbleEvent::Pass => {
                 self.passes += 1;
+                self.log.push(format!(
+                    "Player {} passed their turn.",
+                    self.current_player + 1
+                ));
                 self.next_turn();
+            }
+            ScrabbleEvent::Exchange => {
+                self.exchange_letters();
+                self.next_turn();
+            }
+            ScrabbleEvent::DeleteAll => {
+                let cleared = &mut self.board.clear_tentative();
+                self.current_player_mut().letters.append(cleared);
             }
             ScrabbleEvent::Ignored => return EventResult::Ignored,
         };
