@@ -101,10 +101,6 @@ impl ScrabbleGame {
         )?)
     }
 
-    pub fn accepts(&self, word: &String) -> bool {
-        self.dict.contains(word)
-    }
-
     fn score_of(letter: char) -> usize {
         match letter {
             'A' | 'E' | 'I' | 'L' | 'N' | 'O' | 'R' | 'S' | 'T' | 'U' => 1,
@@ -136,7 +132,7 @@ impl ScrabbleGame {
         let mut not_accepted = Vec::new();
         for squares in word_squares {
             let word = squares.iter().map(|sq| sq.ch.unwrap()).collect();
-            if !self.accepts(&word) {
+            if !self.dict.contains(&word) {
                 not_accepted.push(word);
                 continue;
             }
