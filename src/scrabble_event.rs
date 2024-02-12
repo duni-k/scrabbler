@@ -10,8 +10,6 @@ pub enum ScrabbleEvent {
     Exchange,
     Delete,
     DeleteAll,
-    Undo,
-    Redo,
     Ignored,
 }
 
@@ -24,8 +22,6 @@ impl From<Event> for ScrabbleEvent {
             Event::Key(Key::Right) | Event::Char('L') => Self::Move(Direction::Right),
             Event::Key(Key::Del | Key::Backspace) => Self::Delete,
             Event::Char(ch @ ('a'..='z' | 'å'..='ö')) => Self::Letter(ch),
-            Event::CtrlChar('z') => Self::Undo,
-            Event::CtrlChar('r') => Self::Redo,
             Event::CtrlChar('p') => Self::Pass,
             Event::CtrlChar('e') => Self::Exchange,
             Event::CtrlChar('d') => Self::DeleteAll,
