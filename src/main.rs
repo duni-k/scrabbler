@@ -8,7 +8,7 @@ use std::{
 
 use cursive::{
     align::HAlign,
-    views::{Button, Dialog, LinearLayout, Panel, SelectView},
+    views::{Button, Dialog, EditView, LinearLayout, Panel, SelectView},
     Cursive,
 };
 use fst::Set;
@@ -28,13 +28,17 @@ async fn main() {
 
     let mut siv = cursive::default();
     siv.add_layer(
-        Dialog::new().title("SCRABBLER").content(
-            LinearLayout::vertical()
-                .child(Button::new_raw("  New game   ", move |s| {
-                    new_game(s, dict.clone())
-                }))
-                .child(Button::new_raw("    Exit     ", |s| s.quit())),
-        ),
+        Dialog::new()
+            .title("SCRABBLER")
+            .content(
+                LinearLayout::vertical()
+                    .child(Button::new_raw("New game", move |s| {
+                        new_game(s, dict.clone())
+                    }))
+                    .child(Button::new_raw("How to play", help))
+                    .child(Button::new_raw("Exit", |s| s.quit())),
+            )
+            .h_align(HAlign::Center),
     );
     siv.add_global_callback('?', help);
 
@@ -43,14 +47,17 @@ async fn main() {
 
 fn help(siv: &mut Cursive) {
     siv.add_layer(Dialog::info(
-        "Welcome to Scrabbler!
+        "
+Welcome to Scrabbler!
 
-    Controls:
-    Use arrow keys or <[HJKL]> to navigate.
-    Press <Enter> to attempt placement.
-    Ctrl+e will exchange letters currently placed with random from the bag.
-    Ctrl+d will delete all letters currently in tentative placement.
-    Ctrl+p will pass the turn.",
+Controls:
+Use arrow keys or <[HJKL]> to navigate.
+Press <Enter> to attempt placement.
+Ctrl+e will exchange letters currently placed with random from the bag.
+Ctrl+d will delete all letters currently in tentative placement.
+Ctrl+p will pass the turn.
+
+? to bring up this screen during game.",
     ));
 }
 
@@ -60,14 +67,16 @@ fn new_game(siv: &mut Cursive, dict: Set<Vec<u8>>) {
             .title("Select number of players")
             .content(
                 SelectView::new()
-                    .item("2", 2)
-                    .item("3", 3)
-                    .item("4", 4)
-                    .on_submit(move |s, n_players| {
+                    .with_all(
+                        (2usize..=5)
+                            .into_iter()
+                            .map(|n_player| (n_player.to_string(), n_player)),
+                    )
+                    .on_submit(move |s, &n_players| {
                         s.pop_layer();
-                        start_game(s, ScrabbleGame::new(*n_players, dict.clone()));
+                        start_game(s, ScrabbleGame::new(n_players, dict.clone()));
                     })
-                    .h_align(HAlign::Center),
+                    .popup(),
             )
             .dismiss_button("Back"),
     );
