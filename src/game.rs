@@ -4,12 +4,6 @@ use crate::{
     direction::Direction,
 };
 
-use std::{
-    error::Error,
-    fs::File,
-    io::{self, BufRead},
-};
-
 use cursive::{
     event::{Event, EventResult},
     view::CannotFocus,
@@ -35,8 +29,13 @@ pub struct ScrabbleGame {
     passes: usize,
 }
 
+#[derive(Clone, Copy)]
+pub struct Options {
+    pub n_players: usize,
+}
+
 impl ScrabbleGame {
-    pub fn new(n_players: usize) -> Result<Self, &'static str> {
+    pub fn new(n_players: usize, dict: Set<Vec<u8>>) -> Self {
         let mut letters = vec![
             vec!['A'; 9],
             vec!['B'; 2],
@@ -77,28 +76,18 @@ impl ScrabbleGame {
             for _ in 0..N_LETTERS {
                 if let Some(ch) = letters.pop() {
                     player_letters.push(ch);
-                } else {
-                    return Err("Too many players :/");
                 }
             }
             players.push(Player::new(player_letters));
         }
 
-        Ok(Self {
+        Self {
             board: ScrabbleBoard::new(),
             players,
             letters_bag: letters,
+            dict,
             ..Default::default()
-        })
-    }
-
-    pub async fn build_dict(&mut self, file_name: &String) -> Result<(), Box<dyn Error>> {
-        let reader = io::BufReader::new(File::open(file_name)?);
-        Ok(self.dict = Set::from_iter(
-            reader
-                .lines()
-                .map(|l| l.unwrap_or("".into()).trim().to_owned()),
-        )?)
+        }
     }
 
     fn score_of(letter: char) -> usize {
@@ -160,7 +149,7 @@ impl ScrabbleGame {
         }
 
         if !not_accepted.is_empty() {
-            Err(format!("Words not accepted: {:?}.", not_accepted))
+            Err(format!("Word(s) not accepted: {:?}.", not_accepted))
         } else {
             Ok(words_and_scores)
         }
@@ -238,6 +227,11 @@ impl ScrabbleGame {
     }
 
     fn exchange_letters(&mut self) {
+        if self.board.tentative.len() > self.letters_bag.len() {
+            self.log
+                .push("Can't exchange more letters than are left in bag.".to_string());
+            return;
+        }
         let amount = self.board.tentative.len();
         self.letters_bag.append(&mut self.board.clear_tentative());
         self.letters_bag.shuffle(&mut rand::thread_rng());
@@ -246,6 +240,7 @@ impl ScrabbleGame {
                 self.current_player_mut().letters.push(letter);
             }
         }
+        self.next_turn();
     }
 }
 
@@ -320,7 +315,7 @@ impl cursive::View for ScrabbleGame {
     }
 
     fn required_size(&mut self, _: Vec2) -> Vec2 {
-        self.board.size.map_x(|x| x * 4 + 20).map_y(|y| y + 10)
+        self.board.size.map_x(|x| x * 4 + 10).map_y(|y| y + 10)
     }
 
     fn on_event(&mut self, event: Event) -> EventResult {
@@ -359,8 +354,6 @@ impl cursive::View for ScrabbleGame {
                 },
                 Err(e) => self.log.push(e.to_string()),
             },
-            ScrabbleEvent::Undo => todo!(),
-            ScrabbleEvent::Redo => todo!(),
             ScrabbleEvent::Pass => {
                 self.passes += 1;
                 self.log.push(format!(
@@ -369,10 +362,7 @@ impl cursive::View for ScrabbleGame {
                 ));
                 self.next_turn();
             }
-            ScrabbleEvent::Exchange => {
-                self.exchange_letters();
-                self.next_turn();
-            }
+            ScrabbleEvent::Exchange => self.exchange_letters(),
             ScrabbleEvent::DeleteAll => {
                 let cleared = &mut self.board.clear_tentative();
                 self.current_player_mut().letters.append(cleared);
