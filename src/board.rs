@@ -170,6 +170,7 @@ impl ScrabbleBoard {
         for pos in self.tentative.clone() {
             cleared.push(self.square_mut_unchecked(&pos).clear_char().unwrap());
         }
+        self.inserted -= self.tentative.len();
         self.tentative.clear();
         cleared
     }
