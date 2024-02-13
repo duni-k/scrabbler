@@ -301,16 +301,24 @@ impl cursive::View for ScrabbleGame {
             }
         }
 
-        printer.print_vline((board.x * 4 + 1, 0), board.y + 10, "|");
         // Print player scores
+        let player_window_x = board.x * 4 + 2;
         for (i, player) in self.players.iter().enumerate() {
-            printer.with_effect(cursive::theme::Effect::Underline, |printer| {
-                printer.print((board.x * 4 + 2, i * 2), &format!("Player {}", i + 1));
-            });
+            printer.with_effect(
+                if i == self.current_player {
+                    cursive::theme::Effect::Underline
+                } else {
+                    cursive::theme::Effect::Dim
+                },
+                |printer| {
+                    printer.print((player_window_x, i * 3), &format!("Player {}", i + 1));
+                },
+            );
             printer.print(
-                (board.x * 4 + 2, i * 2 + 1),
+                (player_window_x, i * 3 + 1),
                 &format!("{} pts", player.score),
             );
+            printer.print_hline((player_window_x, i * 3 + 2), 10, "-");
         }
     }
 
