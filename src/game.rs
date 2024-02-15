@@ -5,9 +5,10 @@ use crate::{
 };
 
 use cursive::{
-    event::{Event, EventResult},
+    event::{Callback, Event, EventResult},
     view::CannotFocus,
-    Vec2,
+    views::Dialog,
+    Cursive, Vec2,
 };
 use fst::Set;
 use rand::prelude::SliceRandom;
@@ -173,13 +174,6 @@ impl ScrabbleGame {
             if let Some(letter) = self.letters_bag.pop() {
                 curr_player.letters.push(letter);
             }
-        }
-        // everyone passed
-        if self.passes >= self.players.len() {
-            // subtract letter scores of letters still held from player scores
-            // announce winner
-            // restart possible?
-            todo!();
         }
 
         self.current_player += 1;
@@ -369,6 +363,13 @@ impl cursive::View for ScrabbleGame {
             },
             ScrabbleEvent::Pass => {
                 self.passes += 1;
+                if self.passes >= self.players.len() {
+                    let scores = self.players.iter().map(|p| &p.score).copied().collect();
+
+                    return EventResult::Consumed(Some(Callback::from_fn(move |s| {
+                        restart(s, &scores)
+                    })));
+                }
                 self.log.push(format!(
                     "Player {} passed their turn.",
                     self.current_player + 1
@@ -380,7 +381,7 @@ impl cursive::View for ScrabbleGame {
                 let cleared = &mut self.board.clear_tentative();
                 self.current_player_mut().letters.append(cleared);
             }
-            ScrabbleEvent::Ignored => return EventResult::Ignored,
+            _ => return EventResult::Ignored,
         };
 
         EventResult::Consumed(None)
@@ -389,6 +390,25 @@ impl cursive::View for ScrabbleGame {
     fn take_focus(&mut self, _: cursive::direction::Direction) -> Result<EventResult, CannotFocus> {
         Ok(EventResult::Consumed(None))
     }
+}
+
+fn restart(siv: &mut Cursive, scores: &Vec<usize>) {
+    let mut ranking: Vec<(PlayerIndex, usize)> = scores.into_iter().copied().enumerate().collect();
+    ranking.sort_unstable_by(|(_, score1), (_, score2)| score2.cmp(score1));
+
+    siv.pop_layer();
+    siv.add_layer(
+        Dialog::new().title("GAME OVER").content(Dialog::info(
+            ranking
+                .iter()
+                .enumerate()
+                .map(|(i, (pi, score))| {
+                    format!("{}: Player {} scored {} points.", i + 1, pi + 1, score)
+                })
+                .collect::<Vec<String>>()
+                .join("\n"),
+        )),
+    );
 }
 
 struct Player {
