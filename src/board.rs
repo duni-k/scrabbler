@@ -261,20 +261,23 @@ impl ScrabbleBoard {
         }
     }
 
-    pub fn collect_tentative(&self) -> Result<Vec<Vec<Square>>, String> {
+    pub fn collect_tentative(&mut self) -> Result<Vec<Vec<Square>>, String> {
         let horizontal_pred = |pos: Vec2| pos.map_x(|x| x - 1);
         let horizontal_succ = |pos: Vec2| pos.map_x(|x| x + 1);
         let vertical_pred = |pos: Vec2| pos.map_y(|y| y - 1);
         let vertical_succ = |pos: Vec2| pos.map_y(|y| y + 1);
 
-        match self.tentative_alignment() {
+        let mut mults_to_clear: Vec<Vec2> = Vec::new();
+        let res = match self.tentative_alignment() {
             Alignment::Horizontal => Ok(self.collecter_aux(
+                &mut mults_to_clear,
                 horizontal_pred,
                 horizontal_succ,
                 vertical_pred,
                 vertical_succ,
             )),
             Alignment::Vertical => Ok(self.collecter_aux(
+                &mut mults_to_clear,
                 vertical_pred,
                 vertical_succ,
                 horizontal_pred,
@@ -282,52 +285,61 @@ impl ScrabbleBoard {
             )),
             Alignment::Undefined => {
                 let mut curr = *self.tentative.iter().next().unwrap();
-                let mut hori = Vec::new();
-                loop {
-                    let prev = horizontal_pred(curr);
-                    if let Some(_) = self.letter_at(&prev) {
-                        curr = prev;
-                    } else {
-                        break;
-                    }
+                let mut mults_to_clear_hori = Vec::new();
+                while let Some(_) = self.letter_at(&horizontal_pred(curr)) {
+                    curr = horizontal_pred(curr);
                 }
+                let mut hori = Vec::new();
                 while let Some(square) = self.square_at(&curr) {
                     if square.ch.is_none() {
                         break;
                     }
                     hori.push(square.clone());
+                    mults_to_clear_hori.push(curr.clone());
                     curr = horizontal_succ(curr);
                 }
 
                 let mut curr = *self.tentative.iter().next().unwrap();
-                let mut vert = Vec::new();
-                loop {
-                    let prev = vertical_pred(curr);
-                    if let Some(_) = self.letter_at(&prev) {
-                        curr = prev;
-                    } else {
-                        break;
-                    }
+                while let Some(_) = self.letter_at(&vertical_pred(curr)) {
+                    curr = vertical_pred(curr);
                 }
+
+                let mut vert = Vec::new();
                 while let Some(square) = self.square_at(&curr) {
                     if square.ch.is_none() {
                         break;
                     }
                     vert.push(square.clone());
+                    mults_to_clear.push(curr.clone());
                     curr = vertical_succ(curr);
                 }
                 match (hori.len(), vert.len()) {
-                    (_, 1) => Ok(vec![hori]),
+                    (_, 1) => {
+                        mults_to_clear = mults_to_clear_hori;
+                        Ok(vec![hori])
+                    }
                     (1, _) => Ok(vec![vert]),
-                    (_, _) => Ok(vec![hori, vert]),
+                    (_, _) => {
+                        mults_to_clear.append(&mut mults_to_clear_hori);
+                        Ok(vec![hori, vert])
+                    }
                 }
             }
             Alignment::Invalid => return Err("Letters not aligned".to_string()),
+        };
+
+        if res.is_ok() {
+            for pos in mults_to_clear {
+                self.square_mut_from_coords_unchecked(pos.x, pos.y).mult = None;
+            }
         }
+
+        res
     }
 
     fn collecter_aux(
         &self,
+        mults_to_clear: &mut Vec<Vec2>,
         outer_pred: impl Fn(Vec2) -> Vec2,
         outer_succ: impl Fn(Vec2) -> Vec2,
         inner_pred: impl Fn(Vec2) -> Vec2,
@@ -336,13 +348,8 @@ impl ScrabbleBoard {
         let mut word_squares: Vec<Vec<Square>> = Vec::new();
 
         let mut curr_main = *self.tentative.iter().next().unwrap();
-        loop {
-            let prev = outer_pred(curr_main);
-            if let Some(_) = self.letter_at(&prev) {
-                curr_main = prev;
-            } else {
-                break;
-            }
+        while let Some(_) = self.letter_at(&outer_pred(curr_main)) {
+            curr_main = outer_pred(curr_main);
         }
 
         let mut main_squares: Vec<Square> = Vec::new();
@@ -352,6 +359,7 @@ impl ScrabbleBoard {
                 break;
             }
             main_squares.push(square.clone());
+            mults_to_clear.push(curr_main.clone());
             if self.tentative.contains(&curr_main) {
                 let mut curr = curr_main.clone();
                 match (
@@ -360,34 +368,24 @@ impl ScrabbleBoard {
                 ) {
                     (None, None) | (Some(_), Some(_)) => (),
                     (Some(_), None) => {
-                        inner_squares.push(square.clone());
-                        loop {
-                            let next = inner_pred(curr);
-                            if let Some(square) = self.square_at(&next) {
-                                if square.ch.is_none() {
-                                    break;
-                                }
-                                inner_squares.insert(0, square.clone());
-                                curr = next;
-                            } else {
+                        while let Some(square) = self.square_at(&curr) {
+                            if square.ch.is_none() {
                                 break;
                             }
+                            inner_squares.insert(0, square.clone());
+                            mults_to_clear.insert(0, curr.clone());
+                            curr = inner_pred(curr);
                         }
                         word_squares.push(inner_squares);
                     }
                     (None, Some(_)) => {
-                        inner_squares.push(square.clone());
-                        loop {
-                            let next = inner_succ(curr);
-                            if let Some(square) = self.square_at(&next) {
-                                if square.ch.is_none() {
-                                    break;
-                                }
-                                inner_squares.push(square.clone());
-                                curr = next;
-                            } else {
+                        while let Some(square) = self.square_at(&curr) {
+                            if square.ch.is_none() {
                                 break;
                             }
+                            inner_squares.push(square.clone());
+                            mults_to_clear.push(curr.clone());
+                            curr = inner_succ(curr);
                         }
                         word_squares.push(inner_squares);
                     }
