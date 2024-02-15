@@ -109,7 +109,12 @@ impl ScrabbleGame {
             return Err("No letters placed.".to_string());
         }
 
-        if self.turn > 0 && !self.board.is_connected() {
+        if self.turn == 0 {
+            let center = self.board.size.map(|v| (v - 1) / 2);
+            if !self.board.tentative.contains(&center) {
+                return Err("First placement must contain center square.".to_string());
+            }
+        } else if !self.board.is_connected() {
             return Err("Letters not connected to existing.".to_string());
         }
 
@@ -323,7 +328,7 @@ impl cursive::View for ScrabbleGame {
     }
 
     fn required_size(&mut self, _: Vec2) -> Vec2 {
-        self.board.size.map_x(|x| x * 4 + 10).map_y(|y| y + 10)
+        self.board.size.map_x(|x| x * 4 + 12).map_y(|y| y + 10)
     }
 
     fn on_event(&mut self, event: Event) -> EventResult {

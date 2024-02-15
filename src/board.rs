@@ -133,6 +133,10 @@ impl ScrabbleBoard {
             .unwrap()
     }
 
+    pub fn center_square(&self) -> Vec2 {
+        self.size.map(|v| (v - 1) / 2)
+    }
+
     fn square_from_coords_unchecked(&self, x: usize, y: usize) -> &Square {
         self.squares.get(Self::coords_to_index(x, y)).unwrap()
     }
