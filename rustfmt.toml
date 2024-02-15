@@ -1,5 +1,0 @@
-version = "Two"
-wrap_comments = true
-where_single_line = true
-use_field_init_shorthand = true
-unstable_features = true

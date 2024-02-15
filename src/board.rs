@@ -75,7 +75,6 @@ impl ScrabbleBoard {
             Direction::Up => self.focus.map_y(|y| if y > 0 { y } else { BOARD_SIZE } - 1),
             Direction::Right => self.focus.map_x(|x| x + 1),
             Direction::Left => self.focus.map_x(|x| if x > 0 { x } else { BOARD_SIZE } - 1),
-            Direction::Unknown => self.focus,
         }
         .map(|v| v % BOARD_SIZE);
     }

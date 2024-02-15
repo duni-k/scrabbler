@@ -8,7 +8,7 @@ use std::{
 
 use cursive::{
     align::HAlign,
-    views::{Button, Dialog, EditView, LinearLayout, Panel, SelectView},
+    views::{Button, Dialog, LinearLayout, Panel, SelectView},
     Cursive,
 };
 use fst::Set;
@@ -36,10 +36,11 @@ async fn main() {
                         new_game(s, dict.clone())
                     }))
                     .child(Button::new_raw("How to play", help))
-                    .child(Button::new_raw("Exit", |s| s.quit())),
+                    .child(Button::new_raw("Exit", Cursive::quit)),
             )
             .h_align(HAlign::Center),
     );
+    help(&mut siv);
     siv.add_global_callback('?', help);
 
     siv.run();
