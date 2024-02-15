@@ -11,6 +11,7 @@ use cursive::{
     Cursive, Vec2,
 };
 use fst::Set;
+use itertools::Itertools;
 use rand::prelude::SliceRandom;
 
 const N_LETTERS: usize = 7;
@@ -364,10 +365,20 @@ impl cursive::View for ScrabbleGame {
             ScrabbleEvent::Pass => {
                 self.passes += 1;
                 if self.passes >= self.players.len() {
-                    let scores = self.players.iter().map(|p| &p.score).copied().collect();
+                    let scores = self
+                        .players
+                        .iter()
+                        .map(|p| {
+                            p.score as isize
+                                - p.letters
+                                    .iter()
+                                    .map(|&letter| Self::score_of(letter) as isize)
+                                    .sum::<isize>()
+                        })
+                        .collect();
 
                     return EventResult::Consumed(Some(Callback::from_fn(move |s| {
-                        restart(s, &scores)
+                        end_game(s, &scores)
                     })));
                 }
                 self.log.push(format!(
@@ -392,16 +403,28 @@ impl cursive::View for ScrabbleGame {
     }
 }
 
-fn restart(siv: &mut Cursive, scores: &Vec<usize>) {
-    let mut ranking: Vec<(PlayerIndex, usize)> = scores.into_iter().copied().enumerate().collect();
-    ranking.sort_unstable_by(|(_, score1), (_, score2)| score2.cmp(score1));
+fn end_game(siv: &mut Cursive, scores: &Vec<isize>) {
+    let mut scores_ranked: Vec<(usize, (PlayerIndex, &isize))> = scores
+        .iter()
+        .enumerate()
+        .sorted_unstable_by_key(|(_, &score)| score.clone())
+        .enumerate()
+        .collect();
+    for i in 0..scores_ranked.len() {
+        if let Some(&(_, (_, &score2))) = scores_ranked.get(i + 1) {
+            if *scores_ranked[i].1 .1 == score2 {
+                scores_ranked[i + 1].0 = i;
+            } else {
+                scores_ranked[i + 1].0 = i + 1;
+            }
+        }
+    }
 
     siv.pop_layer();
     siv.add_layer(
         Dialog::new().title("GAME OVER").content(Dialog::info(
-            ranking
+            scores_ranked
                 .iter()
-                .enumerate()
                 .map(|(i, (pi, score))| {
                     format!("{}: Player {} scored {} points.", i + 1, pi + 1, score)
                 })
