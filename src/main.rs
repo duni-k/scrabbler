@@ -1,7 +1,9 @@
 use scrabbler::game::ScrabbleGame;
 use std::{
+    collections::HashMap,
     error::Error,
-    fs::File,
+    fs::{self, File},
+    hash::Hasher,
     io::{self, BufRead},
     process,
 };
@@ -13,13 +15,37 @@ use cursive::{
     Cursive,
 };
 use fst::Set;
+use serde_derive::Deserialize;
 use tokio;
 
-const DEFAULT_DICT: &'static str = "dict_en.txt";
+#[derive(Deserialize, Debug)]
+struct Config {
+    lang_file: String,
+    players: Vec<PlayerProfile>,
+}
 
+#[derive(Deserialize, Debug, Clone, Eq)]
+struct PlayerProfile {
+    name: String,
+    games_won: usize,
+}
+
+impl PartialEq for PlayerProfile {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+
+impl std::hash::Hash for PlayerProfile {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+    }
+}
 #[tokio::main]
 async fn main() {
-    let dict = match build_dict(&DEFAULT_DICT.into()).await {
+    let conf: Config =
+        toml::from_str(&fs::read_to_string("scrabble_config.toml").unwrap()).unwrap();
+    let dict = match build_dict(&conf.lang_file).await {
         Err(e) => {
             println!("Could not build dict: {}", e);
             process::exit(1);
@@ -34,7 +60,7 @@ async fn main() {
             .content(
                 LinearLayout::vertical()
                     .child(Button::new_raw("New game", move |s| {
-                        new_game(s, dict.clone())
+                        new_game(s, dict.clone(), conf.players.clone())
                     }))
                     .child(Button::new_raw("How to play", help))
                     .child(Button::new_raw("Exit", Cursive::quit)),
@@ -66,14 +92,22 @@ Ctrl+p will pass the turn.
     ));
 }
 
-fn new_game(siv: &mut Cursive, dict: Set<Vec<u8>>) {
+fn new_game(siv: &mut Cursive, dict: Set<Vec<u8>>, player_profiles: Vec<PlayerProfile>) {
+    let player_map: HashMap<String, PlayerProfile> =
+        player_profiles.iter().fold(HashMap::new(), |mut acc, p| {
+            acc.insert(p.name.clone(), p.to_owned());
+            acc
+        });
     let select = SelectView::<String>::new()
-        .on_submit(on_submit)
+        .with_all_str(player_profiles.iter().map(|p| p.name.clone()))
+        .on_submit(move |s, name: &String| {
+            show_player(s, player_map.get(name).unwrap());
+        })
         .with_name("select")
         .fixed_size((10, 5));
     let buttons = LinearLayout::vertical()
-        .child(Button::new("New player", add_name))
-        .child(Button::new("Delete", delete_name))
+        .child(Button::new("New player", add_player))
+        .child(Button::new("Delete", delete_player))
         .child(DummyView)
         .child(Button::new("Start game", move |s| {
             if let Some(player_names) =
@@ -103,7 +137,7 @@ fn new_game(siv: &mut Cursive, dict: Set<Vec<u8>>) {
     );
 }
 
-fn add_name(s: &mut Cursive) {
+fn add_player(s: &mut Cursive) {
     fn ok(s: &mut Cursive, name: &str) {
         s.call_on_name("select", |view: &mut SelectView<String>| {
             view.add_item_str(name)
@@ -131,7 +165,7 @@ fn add_name(s: &mut Cursive) {
     );
 }
 
-fn delete_name(s: &mut Cursive) {
+fn delete_player(s: &mut Cursive) {
     let mut select = s.find_name::<SelectView<String>>("select").unwrap();
     match select.selected_id() {
         None => s.add_layer(Dialog::info("No name to remove")),
@@ -141,12 +175,11 @@ fn delete_name(s: &mut Cursive) {
     }
 }
 
-fn on_submit(s: &mut Cursive, name: &str) {
-    s.pop_layer();
+fn show_player(s: &mut Cursive, p: &PlayerProfile) {
     s.add_layer(
-        Dialog::text(format!("Name: {}\nAwesome: yes", name))
-            .title(format!("{}'s info", name))
-            .button("Quit", Cursive::quit),
+        Dialog::text(format!("Name: {}\nGames won: {}", p.name, p.games_won))
+            .title(format!("{}'s info", p.name))
+            .dismiss_button("Close"),
     );
 }
 

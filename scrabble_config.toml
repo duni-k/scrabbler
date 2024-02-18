@@ -1,0 +1,8 @@
+lang_file = "dict_en.txt"
+
+[[players]]
+name = "Edvard"
+games_won = 0
+[[players]]
+name = "Stella"
+games_won = 0
