@@ -8,7 +8,7 @@ use cursive::{
     event::{Callback, Event, EventResult},
     view::CannotFocus,
     views::Dialog,
-    Cursive, Vec2,
+    Vec2,
 };
 use fst::Set;
 use itertools::Itertools;
@@ -37,7 +37,7 @@ pub struct Options {
 }
 
 impl ScrabbleGame {
-    pub fn new(n_players: usize, dict: Set<Vec<u8>>) -> Self {
+    pub fn new(dict: Set<Vec<u8>>, player_names: &Vec<String>) -> Self {
         let mut letters = vec![
             vec!['A'; 9],
             vec!['B'; 2],
@@ -72,15 +72,10 @@ impl ScrabbleGame {
         .collect::<Vec<char>>();
         letters.shuffle(&mut rand::thread_rng());
 
-        let mut players = Vec::with_capacity(n_players);
-        for _ in 0..n_players {
-            let mut player_letters = Vec::new();
-            for _ in 0..N_LETTERS {
-                if let Some(ch) = letters.pop() {
-                    player_letters.push(ch);
-                }
-            }
-            players.push(Player::new(player_letters));
+        let mut players = Vec::new();
+        for name in player_names {
+            let player_letters = letters.drain(0..N_LETTERS).collect();
+            players.push(Player::new(player_letters, name.clone()));
         }
 
         Self {
@@ -88,6 +83,7 @@ impl ScrabbleGame {
             players,
             letters_bag: letters,
             dict,
+            log: vec!["Game started! Good luck :)".to_string()],
             ..Default::default()
         }
     }
@@ -242,6 +238,35 @@ impl ScrabbleGame {
         }
         self.next_turn();
     }
+
+    fn rank_end_scores(&self) -> Vec<(usize, (PlayerIndex, isize))> {
+        let mut scores_ranked: Vec<(usize, (PlayerIndex, isize))> = self
+            .players
+            .iter()
+            .map(|p| {
+                p.score as isize
+                    - p.letters
+                        .iter()
+                        .map(|&letter| Self::score_of(letter) as isize)
+                        .sum::<isize>()
+            })
+            .enumerate()
+            .sorted_unstable_by_key(|(_, score)| score.clone())
+            .enumerate()
+            .collect();
+
+        for i in 0..scores_ranked.len() {
+            if let Some(&(_, (_, score2))) = scores_ranked.get(i + 1) {
+                if scores_ranked[i].1 .1 == score2 {
+                    scores_ranked[i + 1].0 = i;
+                } else {
+                    scores_ranked[i + 1].0 = scores_ranked[i].0 + 1;
+                }
+            }
+        }
+
+        scores_ranked
+    }
 }
 
 impl cursive::View for ScrabbleGame {
@@ -251,7 +276,7 @@ impl cursive::View for ScrabbleGame {
         printer.print_hline(board.keep_y().map_y(|y| y), board.x * 4, "—");
         printer.print(
             (0, board.y + 1),
-            &format!("Player {}'s turn. Letters:", self.current_player + 1),
+            &format!("{}'s turn. Letters:", self.current_player().name),
         );
 
         // Print player letters
@@ -311,7 +336,7 @@ impl cursive::View for ScrabbleGame {
                     cursive::theme::Effect::Dim
                 },
                 |printer| {
-                    printer.print((player_window_x, i * 3), &format!("Player {}", i + 1));
+                    printer.print((player_window_x, i * 3), &format!("{}", player.name));
                 },
             );
             printer.print(
@@ -343,15 +368,15 @@ impl cursive::View for ScrabbleGame {
                         self.current_player_mut().add_score(score_tot);
                         self.log.push(if words_and_scores.len() == 1 {
                             format!(
-                                "Player {} played {} for {} points.",
-                                self.current_player + 1,
+                                "{} played {} for {} points.",
+                                self.current_player().name,
                                 words_and_scores.iter().next().unwrap().0,
                                 score_tot
                             )
                         } else {
                             format!(
-                                "Player {} played {:?}, {} points total.",
-                                self.current_player + 1,
+                                "{} played {:?}, {} points total.",
+                                self.current_player().name,
                                 words_and_scores,
                                 score_tot,
                             )
@@ -365,26 +390,24 @@ impl cursive::View for ScrabbleGame {
             ScrabbleEvent::Pass => {
                 self.passes += 1;
                 if self.passes >= self.players.len() {
-                    let scores = self
-                        .players
-                        .iter()
-                        .map(|p| {
-                            p.score as isize
-                                - p.letters
-                                    .iter()
-                                    .map(|&letter| Self::score_of(letter) as isize)
-                                    .sum::<isize>()
-                        })
-                        .collect();
-
+                    let scores_ranked = self.rank_end_scores();
                     return EventResult::Consumed(Some(Callback::from_fn(move |s| {
-                        end_game(s, &scores)
+                        s.pop_layer();
+                        s.add_layer(
+                            Dialog::new().title("GAME OVER").content(Dialog::info(
+                                scores_ranked
+                                    .iter()
+                                    .map(|(i, (pi, score))| {
+                                        format!("{}: {} scored {} points.", i + 1, pi + 1, score)
+                                    })
+                                    .collect::<Vec<String>>()
+                                    .join("\n"),
+                            )),
+                        );
                     })));
                 }
-                self.log.push(format!(
-                    "Player {} passed their turn.",
-                    self.current_player + 1
-                ));
+                self.log
+                    .push(format!("{} passed their turn.", self.current_player().name));
                 self.next_turn();
             }
             ScrabbleEvent::Exchange => self.exchange_letters(),
@@ -403,49 +426,20 @@ impl cursive::View for ScrabbleGame {
     }
 }
 
-fn end_game(siv: &mut Cursive, scores: &Vec<isize>) {
-    let mut scores_ranked: Vec<(usize, (PlayerIndex, &isize))> = scores
-        .iter()
-        .enumerate()
-        .sorted_unstable_by_key(|(_, &score)| score.clone())
-        .enumerate()
-        .collect();
-    for i in 0..scores_ranked.len() {
-        if let Some(&(_, (_, &score2))) = scores_ranked.get(i + 1) {
-            if *scores_ranked[i].1 .1 == score2 {
-                scores_ranked[i + 1].0 = i;
-            } else {
-                scores_ranked[i + 1].0 = i + 1;
-            }
-        }
-    }
-
-    siv.pop_layer();
-    siv.add_layer(
-        Dialog::new().title("GAME OVER").content(Dialog::info(
-            scores_ranked
-                .iter()
-                .map(|(i, (pi, score))| {
-                    format!("{}: Player {} scored {} points.", i + 1, pi + 1, score)
-                })
-                .collect::<Vec<String>>()
-                .join("\n"),
-        )),
-    );
-}
-
 struct Player {
+    name: String,
     letters: Vec<char>,
     score: ScrabbleScore,
     previous_move: Option<Direction>,
 }
 
 impl Player {
-    fn new(chars: Vec<char>) -> Self {
+    fn new(chars: Vec<char>, name: String) -> Self {
         Self {
             letters: chars,
             score: 0,
             previous_move: None,
+            name,
         }
     }
 
