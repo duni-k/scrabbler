@@ -3,7 +3,11 @@ use std::{
     fmt,
 };
 
-use cursive::{theme::ColorStyle, view::View, Printer, Vec2};
+use cursive::{
+    theme::{BaseColor::*, ColorStyle},
+    view::View,
+    Printer, Vec2,
+};
 use itertools::Itertools;
 
 use crate::direction::Direction;
@@ -412,10 +416,13 @@ impl View for ScrabbleBoard {
         for (y, row) in self.squares.chunks(BOARD_SIZE).enumerate() {
             for (x, square) in row.iter().enumerate() {
                 printer.with_color(
-                    if square.mult.is_none() || square.ch.is_some() {
-                        ColorStyle::primary()
-                    } else {
-                        ColorStyle::merge(ColorStyle::background(), ColorStyle::primary())
+                    match square.mult {
+                        _ if square.ch.is_some() => ColorStyle::primary(),
+                        Some(Multiplier::Dl) => ColorStyle::new(Black, Blue),
+                        Some(Multiplier::Tl) => ColorStyle::new(Black, Blue.light()),
+                        Some(Multiplier::Dw) => ColorStyle::new(Black, Red),
+                        Some(Multiplier::Tw) => ColorStyle::new(Black, Red.light()),
+                        None => ColorStyle::primary(),
                     },
                     |printer| {
                         printer.print((4 * x, y), &format!("{}", square));
