@@ -239,18 +239,20 @@ impl ScrabbleGame {
         self.next_turn();
     }
 
-    fn rank_end_scores(&self) -> Vec<(usize, (PlayerIndex, isize))> {
-        let mut scores_ranked: Vec<(usize, (PlayerIndex, isize))> = self
+    fn rank_end_scores(&self) -> Vec<(usize, (String, isize))> {
+        let mut scores_ranked: Vec<(usize, (String, isize))> = self
             .players
             .iter()
             .map(|p| {
-                p.score as isize
-                    - p.letters
-                        .iter()
-                        .map(|&letter| Self::score_of(letter) as isize)
-                        .sum::<isize>()
+                (
+                    p.name.clone(),
+                    p.score as isize
+                        - p.letters
+                            .iter()
+                            .map(|&letter| Self::score_of(letter) as isize)
+                            .sum::<isize>(),
+                )
             })
-            .enumerate()
             .sorted_unstable_by_key(|(_, score)| score.clone())
             .enumerate()
             .collect();
@@ -397,8 +399,8 @@ impl cursive::View for ScrabbleGame {
                             Dialog::new().title("GAME OVER").content(Dialog::info(
                                 scores_ranked
                                     .iter()
-                                    .map(|(i, (pi, score))| {
-                                        format!("{}: {} scored {} points.", i + 1, pi + 1, score)
+                                    .map(|(i, (name, score))| {
+                                        format!("{}: {} scored {} points.", i + 1, name, score)
                                     })
                                     .collect::<Vec<String>>()
                                     .join("\n"),
