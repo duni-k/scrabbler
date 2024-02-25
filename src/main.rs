@@ -3,7 +3,6 @@ use std::{
     error::Error,
     fs::{self, File},
     io::{self, BufRead},
-    process,
 };
 
 use cursive::{
@@ -31,13 +30,9 @@ struct PlayerProfile {
 async fn main() {
     let conf: Config =
         toml::from_str(&fs::read_to_string("scrabble_config.toml").unwrap()).unwrap();
-    let dict = match build_dict(&conf.lang_file).await {
-        Err(e) => {
-            println!("Could not build dict: {}", e);
-            process::exit(1);
-        }
-        Ok(dict) => dict,
-    };
+    let dict = build_dict(&conf.lang_file)
+        .await
+        .expect("Could not build dict");
 
     let mut siv = cursive::default();
     siv.add_layer(

@@ -19,7 +19,6 @@ const N_LETTERS: usize = 7;
 type PlayerIndex = usize;
 type ScrabbleScore = usize;
 
-#[derive(Default)]
 pub struct ScrabbleGame {
     board: ScrabbleBoard,
     dict: Set<Vec<u8>>,
@@ -29,6 +28,7 @@ pub struct ScrabbleGame {
     log: Vec<String>,
     turn: usize,
     passes: usize,
+    sink: cursive::CbSink,
 }
 
 #[derive(Clone, Copy)]
