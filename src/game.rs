@@ -256,7 +256,7 @@ impl ScrabbleGame {
             })
             .sorted_unstable_by_key(|(_, score)| score.clone())
             .fold(Vec::new(), |mut ranking, (p_name, p_score)| {
-                if let Some((prev_rank, _, prev_p_score)) = ranking.pop() {
+                if let Some(&(prev_rank, _, prev_p_score)) = ranking.last() {
                     if prev_p_score == p_score {
                         ranking.push((prev_rank, p_name, p_score));
                     } else {
