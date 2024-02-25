@@ -72,6 +72,7 @@ Use arrow keys or <[HJKL]> to navigate.
 Press <Enter> to attempt placement.
 Ctrl+e will exchange letters currently placed with random from the bag.
 Ctrl+d will delete all letters currently in tentative placement.
+Ctrl+s will suggest the best possible placement (according to the algorithm):
 Ctrl+p will pass the turn.
 
 ? to bring up this screen during game.",

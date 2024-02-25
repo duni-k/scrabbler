@@ -269,10 +269,52 @@ impl ScrabbleGame {
                 ranking
             })
     }
+    fn suggest_placement(&mut self) {
+        let mut best: Vec<Vec2> = Vec::new();
+        let mut best_score = 0;
+        for x in 0..self.board.size.x {
+            for y in 0..self.board.size.y {
+                let letters = self.current_player().letters.clone();
+                let all_combinations = (1..=letters.len()).flat_map(|len| {
+                    letters
+                        .iter()
+                        .cloned()
+                        .combinations(len)
+                        .collect::<Vec<Vec<char>>>()
+                });
+                for mut combination in all_combinations {
+                    while let Some(letter) = combination.pop() {
+                        let (x, y) = (x + 1, y);
+                        if !self.board.within_bounds(x as isize, y as isize) {
+                            break;
+                        }
+                        if !self.board.has_letter_unchecked(x, y) {
+                            self.board.place_at(letter, &Vec2 { x, y });
+                            self.board.tentative.insert(Vec2 { x, y });
+                        } else {
+                            combination.push(letter);
+                        }
+
+                        if !self.board.tentative.is_empty() {
+                            if let Ok(word_squares) = self.validate_placement() {
+                                if let Ok(words_and_scores) = self.score(&word_squares) {
+                                    let score_tot: usize =
+                                        words_and_scores.iter().map(|(_, score)| score).sum();
+                                    if score_tot > best_score {
+                                        best.clear();
+                                        best = self.board.tentative.iter().cloned().collect();
+                                        best_score = score_tot;
+                                    }
+                                }
+                            }
+                        }
+                        // wander down
+                        // do same as above
+                    }
+                    self.board.tentative.clear();
+                }
             }
         }
-
-        scores_ranked
     }
 }
 
@@ -417,6 +459,7 @@ impl cursive::View for ScrabbleGame {
                     .push(format!("{} passed their turn.", self.current_player().name));
                 self.next_turn();
             }
+            ScrabbleEvent::Suggest => self.suggest_placement(),
             ScrabbleEvent::Exchange => self.exchange_letters(),
             ScrabbleEvent::DeleteAll => {
                 let cleared = &mut self.board.clear_tentative();

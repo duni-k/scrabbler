@@ -7,6 +7,7 @@ pub enum ScrabbleEvent {
     Letter(char),
     Pass,
     Confirm,
+    Suggest,
     Exchange,
     Delete,
     DeleteAll,
@@ -25,6 +26,7 @@ impl From<Event> for ScrabbleEvent {
             Event::CtrlChar('p') => Self::Pass,
             Event::CtrlChar('e') => Self::Exchange,
             Event::CtrlChar('d') => Self::DeleteAll,
+            Event::CtrlChar('s') => Self::Suggest,
             Event::Key(Key::Enter) => Self::Confirm,
             _ => Self::Ignored,
         }
