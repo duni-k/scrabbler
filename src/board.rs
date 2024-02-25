@@ -46,23 +46,18 @@ impl ScrabbleBoard {
                 loop {
                     if let Some((x, y)) = queue.pop() {
                         visited.insert((x, y));
-                        let mut push_neighbor = |x_n: isize, y_n: isize| {
-                            if x_n < (self.size.x as isize)
-                                && x_n >= 0
-                                && y_n < (self.size.y as isize)
-                                && y_n >= 0
-                                && !visited.contains(&(x_n as usize, y_n as usize))
-                                && self
-                                    .letter_at(&Vec2::new(x_n as usize, y_n as usize))
-                                    .is_some()
+                        let mut push_neighbor = |x_n, y_n| {
+                            if self.within_bounds(x as isize, y as isize)
+                                && !visited.contains(&(x_n, y_n))
+                                && self.letter_at(&Vec2::new(x_n, y_n)).is_some()
                             {
-                                queue.push((x_n as usize, y_n as usize));
+                                queue.push((x_n, y_n));
                             }
                         };
-                        push_neighbor(x as isize + 1, y as isize);
-                        push_neighbor(x as isize - 1, y as isize);
-                        push_neighbor(x as isize, y as isize + 1);
-                        push_neighbor(x as isize, y as isize - 1);
+                        push_neighbor(x + 1, y);
+                        push_neighbor(x - 1, y);
+                        push_neighbor(x, y + 1);
+                        push_neighbor(x, y - 1);
                     } else {
                         break 'outer;
                     }
