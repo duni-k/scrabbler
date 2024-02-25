@@ -68,6 +68,10 @@ impl ScrabbleBoard {
         visited.len() == self.inserted
     }
 
+    pub fn within_bounds(&self, x: isize, y: isize) -> bool {
+        x < (self.size.x as isize) && x >= 0 && y < (self.size.y as isize) && y >= 0
+    }
+
     pub fn move_focus(&mut self, dir: &Direction) {
         self.focus = match dir {
             Direction::Down => self.focus.map_y(|y| y + 1),
