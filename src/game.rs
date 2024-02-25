@@ -269,6 +269,7 @@ impl ScrabbleGame {
                 ranking
             })
     }
+
     fn suggest_placement(&mut self) {
         let mut best: Vec<Vec2> = Vec::new();
         let mut best_score = 0;
@@ -446,8 +447,8 @@ impl cursive::View for ScrabbleGame {
                             Dialog::new().title("GAME OVER").content(Dialog::info(
                                 scores_ranked
                                     .iter()
-                                    .map(|(i, (name, score))| {
-                                        format!("{}: {} scored {} points.", i + 1, name, score)
+                                    .map(|(rank, name, score)| {
+                                        format!("{}: {} scored {} points.", rank + 1, name, score)
                                     })
                                     .collect::<Vec<String>>()
                                     .join("\n"),
