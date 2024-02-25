@@ -239,9 +239,11 @@ impl ScrabbleGame {
         self.next_turn();
     }
 
-    fn rank_end_scores(&self) -> Vec<(usize, (String, isize))> {
-        let mut scores_ranked: Vec<(usize, (String, isize))> = self
-            .players
+    //  Returns a vector of tuples where the first element is the placement of the player,
+    //  the second element element is the player name,
+    //  and the third element the player's score.
+    fn rank_end_scores(&self) -> Vec<(usize, String, isize)> {
+        self.players
             .iter()
             .map(|p| {
                 (
@@ -254,16 +256,19 @@ impl ScrabbleGame {
                 )
             })
             .sorted_unstable_by_key(|(_, score)| score.clone())
-            .enumerate()
-            .collect();
-
-        for i in 0..scores_ranked.len() {
-            if let Some(&(_, (_, score2))) = scores_ranked.get(i + 1) {
-                if scores_ranked[i].1 .1 == score2 {
-                    scores_ranked[i + 1].0 = i;
+            .fold(Vec::new(), |mut ranking, (p_name, p_score)| {
+                if let Some((prev_rank, _, prev_p_score)) = ranking.pop() {
+                    if prev_p_score == p_score {
+                        ranking.push((prev_rank, p_name, p_score));
+                    } else {
+                        ranking.push((prev_rank + 1, p_name, p_score));
+                    }
                 } else {
-                    scores_ranked[i + 1].0 = scores_ranked[i].0 + 1;
+                    ranking.push((1, p_name, p_score))
                 }
+                ranking
+            })
+    }
             }
         }
 
