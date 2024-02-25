@@ -50,9 +50,6 @@ async fn main() {
     );
     help(&mut siv);
     siv.add_global_callback('?', help);
-    siv.add_global_callback('[', |s| {
-        s.pop_layer();
-    });
 
     siv.run();
 }
