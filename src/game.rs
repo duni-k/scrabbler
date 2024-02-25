@@ -208,8 +208,7 @@ impl ScrabbleGame {
         if self.board.tentative.contains(self.board.focus()) {
             let focused_char = self.board.focused_char().unwrap().clone();
             self.current_player_mut().letters.push(focused_char);
-            let focus = &self.board.focus().clone();
-            self.board.tentative.remove(focus);
+            self.board.tentative.remove(&self.board.focus().clone());
             self.board.clear_focused();
         }
     }
