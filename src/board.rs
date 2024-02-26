@@ -14,13 +14,12 @@ use crate::direction::Direction;
 
 const BOARD_SIZE: usize = 15;
 
-#[derive(Default)]
 pub struct ScrabbleBoard {
     squares: Vec<Square>,
     focus: Vec2,
     pub tentative: HashSet<Vec2>,
     pub size: Vec2,
-    inserted: usize,
+    inserted: HashSet<Vec2>,
 }
 
 impl ScrabbleBoard {
@@ -30,10 +29,14 @@ impl ScrabbleBoard {
             focus: Vec2::both_from((BOARD_SIZE - 1) / 2),
             size: Vec2::both_from(BOARD_SIZE),
             tentative: HashSet::new(),
-            inserted: 0,
+            inserted: HashSet::new(),
         };
         board.initialize_multipliers();
         board
+    }
+
+    pub fn inserted(&self) -> &HashSet<Vec2> {
+        &self.inserted
     }
 
     // BFS through the board to make sure it's all connected
@@ -65,7 +68,7 @@ impl ScrabbleBoard {
             }
         }
 
-        visited.len() == self.inserted
+        visited.len() == self.inserted.len()
     }
 
     pub fn within_bounds(&self, x: isize, y: isize) -> bool {
@@ -89,9 +92,7 @@ impl ScrabbleBoard {
 
     pub fn place_at(&mut self, letter: char, pos: &Vec2) -> Option<char> {
         let existing_ch = self.squares[Self::coords_to_index(pos.x, pos.y)].ch;
-        if existing_ch.is_none() {
-            self.inserted += 1;
-        }
+        self.inserted.insert(pos.clone());
         self.squares[Self::coords_to_index(pos.x, pos.y)].ch = Some(letter);
         existing_ch
     }
@@ -101,11 +102,11 @@ impl ScrabbleBoard {
     }
 
     pub fn clear_focused(&mut self) -> Option<char> {
-        self.inserted -= 1;
-        self.focused_square_mut().clear_char()
+        self.inserted.remove(&self.focus);
+        self.focused_square_mut().clear_letter()
     }
 
-    pub fn focused_char(&self) -> Option<char> {
+    pub fn focused_letter(&self) -> Option<char> {
         self.focused_square().ch
     }
 
@@ -135,7 +136,7 @@ impl ScrabbleBoard {
             .unwrap()
     }
 
-    pub fn center_square(&self) -> Vec2 {
+    pub fn center_pos(&self) -> Vec2 {
         self.size.map(|v| (v - 1) / 2)
     }
 
@@ -171,12 +172,12 @@ impl ScrabbleBoard {
         self.square_from_coords_unchecked(x, y).mult
     }
 
-    pub fn clear_tentative(&mut self) -> Vec<char> {
+    pub fn clear_tentative_from_board(&mut self) -> Vec<char> {
         let mut cleared = Vec::new();
         for pos in self.tentative.clone() {
-            cleared.push(self.square_mut_unchecked(&pos).clear_char().unwrap());
+            cleared.push(self.square_mut_unchecked(&pos).clear_letter().unwrap());
+            self.tentative.remove(&pos);
         }
-        self.inserted -= self.tentative.len();
         self.tentative.clear();
         cleared
     }
@@ -464,7 +465,7 @@ pub struct Square {
 }
 
 impl Square {
-    fn clear_char(&mut self) -> Option<char> {
+    fn clear_letter(&mut self) -> Option<char> {
         let ch = self.ch;
         self.ch = None;
         ch

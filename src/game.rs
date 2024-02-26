@@ -28,7 +28,6 @@ pub struct ScrabbleGame {
     log: Vec<String>,
     turn: usize,
     passes: usize,
-    sink: cursive::CbSink,
 }
 
 #[derive(Clone, Copy)]
@@ -84,7 +83,9 @@ impl ScrabbleGame {
             letters_bag: letters,
             dict,
             log: vec!["Game started! Good luck :)".to_string()],
-            ..Default::default()
+            current_player: 0,
+            turn: 0,
+            passes: 0,
         }
     }
 
@@ -160,13 +161,12 @@ impl ScrabbleGame {
 
     fn next_turn(&mut self) {
         let curr_player = &mut self.players[self.current_player];
-        self.board.tentative.clear();
         // check BINGO
         let letters_placed = N_LETTERS - curr_player.letters.len();
         if letters_placed == N_LETTERS {
             curr_player.add_score(50);
         }
-        // clear those letters from the player pieces and get new ones
+        // add new letters for player
         for _ in 0..letters_placed {
             if let Some(letter) = self.letters_bag.pop() {
                 curr_player.letters.push(letter);
@@ -182,9 +182,11 @@ impl ScrabbleGame {
     }
 
     fn maybe_toggle_letter(&mut self, ch: char) {
-        if self.board.focused_char().is_some() && !self.board.tentative.contains(self.board.focus())
+        if self.board.focused_letter().is_some()
+            && !self.board.tentative.contains(self.board.focus())
         {
             self.log.push("Square occupied".to_string());
+            return;
         }
 
         if let Some(idx) = self
@@ -206,8 +208,8 @@ impl ScrabbleGame {
 
     fn remove_focused(&mut self) {
         if self.board.tentative.contains(self.board.focus()) {
-            let focused_char = self.board.focused_char().unwrap().clone();
-            self.current_player_mut().letters.push(focused_char);
+            let focused = self.board.focused_letter().unwrap().clone();
+            self.current_player_mut().letters.push(focused);
             self.board.tentative.remove(&self.board.focus().clone());
             self.board.clear_focused();
         }
@@ -228,7 +230,8 @@ impl ScrabbleGame {
             return;
         }
         let amount = self.board.tentative.len();
-        self.letters_bag.append(&mut self.board.clear_tentative());
+        self.letters_bag
+            .append(&mut self.board.clear_tentative_from_board());
         self.letters_bag.shuffle(&mut rand::thread_rng());
         for _ in 0..amount {
             if let Some(letter) = self.letters_bag.pop() {
@@ -269,51 +272,76 @@ impl ScrabbleGame {
             })
     }
 
+    // Exhaustively search the board for the placement of letters
+    // that provides the greatest score (and place those letters on the board tentatively)
+    // this is way too complex, we need a dawg
     fn suggest_placement(&mut self) {
-        let mut best: Vec<Vec2> = Vec::new();
+        let mut cleared = self.board.clear_tentative_from_board();
+        self.current_player_mut().letters.append(&mut cleared);
+
+        let mut best: Vec<(Vec2, char)> = Vec::new();
         let mut best_score = 0;
-        for x in 0..self.board.size.x {
-            for y in 0..self.board.size.y {
-                let letters = self.current_player().letters.clone();
-                let all_combinations = (1..=letters.len()).flat_map(|len| {
-                    letters
-                        .iter()
-                        .cloned()
-                        .combinations(len)
-                        .collect::<Vec<Vec<char>>>()
-                });
-                for mut combination in all_combinations {
+        let letters = self.current_player().letters.clone();
+        let all_combinations = (1..=letters.len()).flat_map(|len| {
+            letters
+                .iter()
+                .cloned()
+                .permutations(len)
+                .collect::<Vec<Vec<char>>>()
+        });
+
+        for y in 0..self.board.size.y {
+            for x in 0..self.board.size.x {
+                for mut combination in all_combinations.clone() {
+                    let (mut x, y) = (x, y);
                     while let Some(letter) = combination.pop() {
-                        let (x, y) = (x + 1, y);
-                        if !self.board.within_bounds(x as isize, y as isize) {
-                            break;
-                        }
-                        if !self.board.has_letter_unchecked(x, y) {
+                        if self.board.has_letter_unchecked(x, y) {
+                            combination.push(letter);
+                        } else {
                             self.board.place_at(letter, &Vec2 { x, y });
                             self.board.tentative.insert(Vec2 { x, y });
-                        } else {
-                            combination.push(letter);
                         }
-
                         if !self.board.tentative.is_empty() {
                             if let Ok(word_squares) = self.validate_placement() {
                                 if let Ok(words_and_scores) = self.score(&word_squares) {
                                     let score_tot: usize =
                                         words_and_scores.iter().map(|(_, score)| score).sum();
                                     if score_tot > best_score {
-                                        best.clear();
-                                        best = self.board.tentative.iter().cloned().collect();
+                                        best = self
+                                            .board
+                                            .tentative
+                                            .iter()
+                                            .cloned()
+                                            .map(|pos| (pos, self.board.letter_at(&pos).unwrap()))
+                                            .collect();
                                         best_score = score_tot;
                                     }
                                 }
                             }
                         }
-                        // wander down
-                        // do same as above
+
+                        x += 1;
+                        if !self.board.within_bounds(x as isize, y as isize) {
+                            break;
+                        }
                     }
-                    self.board.tentative.clear();
+                    // wander down
+                    // do same as above
+                    self.board.clear_tentative_from_board();
                 }
             }
+        }
+
+        for (pos, letter) in best {
+            let index = self
+                .current_player()
+                .letters
+                .iter()
+                .position(|&ch| ch == letter)
+                .unwrap();
+            self.current_player_mut().letters.remove(index);
+            self.board.place_at(letter, &pos);
+            self.board.tentative.insert(pos);
         }
     }
 }
@@ -431,6 +459,7 @@ impl cursive::View for ScrabbleGame {
                             )
                         });
                         self.next_turn();
+                        self.board.tentative.clear();
                     }
                     Err(e) => self.log.push(e),
                 },
@@ -457,12 +486,14 @@ impl cursive::View for ScrabbleGame {
                 }
                 self.log
                     .push(format!("{} passed their turn.", self.current_player().name));
+                let mut cleared = self.board.clear_tentative_from_board();
+                self.current_player_mut().letters.append(&mut cleared);
                 self.next_turn();
             }
             ScrabbleEvent::Suggest => self.suggest_placement(),
             ScrabbleEvent::Exchange => self.exchange_letters(),
             ScrabbleEvent::DeleteAll => {
-                let cleared = &mut self.board.clear_tentative();
+                let cleared = &mut self.board.clear_tentative_from_board();
                 self.current_player_mut().letters.append(cleared);
             }
             _ => return EventResult::Ignored,
