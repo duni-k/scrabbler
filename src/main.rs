@@ -1,4 +1,5 @@
-use scrabbler::game::ScrabbleGame;
+use scrabbler::{dict::Dict, game::ScrabbleGame};
+
 use std::{
     fs::{self, File},
     io::{self, BufRead, Error, ErrorKind},
