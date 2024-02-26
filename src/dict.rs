@@ -5,7 +5,7 @@ type NodeIndex = usize;
 
 // custom data structure to hold dictionary and support operations required for scrabble
 //
-// In short we construct a tree where the first 26 nodes in the arena make up an implicit root
+// In short we construct a dawg-like tree where the first 26 nodes in the arena make up an implicit root
 // We can do this because we know the scrabble dictionary will include words for each initial letter
 #[derive(Debug)]
 pub struct Dict {
@@ -49,10 +49,10 @@ impl Dict {
             return;
         }
 
+
         let letters: Vec<char> = word.to_ascii_uppercase().chars().collect();
         let mut idx: NodeIndex = Self::root_index_of(&letters[0]);
         for l_idx in 1..letters.len() {
-            println!("{}", idx);
             let mut found_child = false;
             for target in self.children(idx) {
                 if self.nodes[target].letter == letters[l_idx] {
@@ -68,8 +68,22 @@ impl Dict {
             }
         }
         self.nodes[idx].is_terminal = true;
+
     }
 
+    fn cut_off_matching_prefix(to_cut: &str, other: &str) -> String {
+        if to_cut.len() < other.len() {
+            return to_cut.into();
+        }
+        let to_cut: Vec<char> = to_cut.chars().collect();
+        let other: Vec<char> = other.chars().collect();
+        let mut i = 0;
+        while i < other.len() && to_cut[i] == other[i] {
+            i += 1;
+        }
+
+        to_cut[i..to_cut.len()].iter().collect()
+    }
     pub fn contains(&self, word: &str) -> bool {
         if word.is_empty() {
             return false;
@@ -166,22 +180,30 @@ mod test {
     use super::*;
 
     #[test]
-    fn contain_finds_contained() {
+    fn contain_finds_contained() -> Result<(), &'static str> {
         let mut dict = Dict::new();
 
-        dict.insert("test");
-        dict.insert("tests");
+        dict.insert("test", "")?;
+        dict.insert("tests", "test")?;
 
         assert!(dict.contains("test"));
-        assert!(!dict.contains("tests"));
+        Ok(assert!(dict.contains("tests")))
     }
 
     #[test]
-    fn contain_doesnt_find_not_contained() {
+    fn contain_doesnt_find_not_contained() -> Result<(), &'static str> {
         let mut dict = Dict::new();
 
-        dict.insert("tests");
+        dict.insert("tests", "")?;
 
-        assert!(!dict.contains("test"));
+        Ok(assert!(!dict.contains("test")))
+    }
+
+    #[test]
+    fn cuts_off_matching_prefix_correctly() {
+        assert_eq!(
+            Dict::cut_off_matching_prefix("test_accepted", "test"),
+            "_accepted".to_string()
+        );
     }
 }
