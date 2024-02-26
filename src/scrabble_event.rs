@@ -2,7 +2,7 @@ use crate::direction::Direction;
 
 use cursive::event::{Event, Key};
 
-pub enum ScrabbleEvent {
+pub enum SEvent {
     Move(Direction),
     Letter(char),
     Pass,
@@ -14,7 +14,7 @@ pub enum ScrabbleEvent {
     Ignored,
 }
 
-impl From<Event> for ScrabbleEvent {
+impl From<Event> for SEvent {
     fn from(event: Event) -> Self {
         match event {
             Event::Key(Key::Up) | Event::Char('K') => Self::Move(Direction::Up),

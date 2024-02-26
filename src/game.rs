@@ -1,4 +1,4 @@
-use crate::scrabble_event::ScrabbleEvent;
+use crate::scrabble_event::SEvent;
 use crate::{
     board::{Multiplier, ScrabbleBoard, Square},
     direction::Direction,
@@ -274,7 +274,7 @@ impl ScrabbleGame {
 
     // Exhaustively search the board for the placement of letters
     // that provides the greatest score (and place those letters on the board tentatively)
-    // this is way too complex, we need a dawg
+    // this is way too complex, we need to make use of the dawg properly
     fn suggest_placement(&mut self) {
         let mut cleared = self.board.clear_tentative_from_board();
         self.current_player_mut().letters.append(&mut cleared);
@@ -349,24 +349,39 @@ impl ScrabbleGame {
 impl cursive::View for ScrabbleGame {
     fn draw(&self, printer: &cursive::Printer) {
         let board = self.board.size;
+        let square_size = Square::size();
         self.board.draw(printer);
-        printer.print_hline(board.keep_y().map_y(|y| y), board.x * 4, "—");
+        printer.print_hline(board.keep_y().map_y(|y| y), board.x * square_size, "—");
         printer.print(
             (0, board.y + 1),
             &format!("{}'s turn. Letters:", self.current_player().name),
         );
 
         // Print player letters
-        printer.print((0, board.y + 2), &String::from("|"));
+        let letter_disp_len = 6;
+        let letter_disp_offset = 2;
+        printer.print((0, board.y + letter_disp_len), &String::from("|"));
         for (x, ch) in self.current_player().letters.iter().enumerate() {
             printer.print(
-                (6 * x + 2, board.y + 2),
+                (
+                    letter_disp_len * x + letter_disp_offset,
+                    board.y + letter_disp_offset,
+                ),
                 &format!("{} {}", ch, Self::score_of(*ch)),
             );
-            printer.print((6 * x + 6, board.y + 2), "|");
+            printer.print(
+                (
+                    letter_disp_len * x + letter_disp_len,
+                    board.y + letter_disp_offset,
+                ),
+                "|",
+            );
         }
         printer.print(
-            (6 * self.current_player().letters.len() + 2, board.y + 2),
+            (
+                letter_disp_len * self.current_player().letters.len() + letter_disp_offset,
+                board.y + letter_disp_offset,
+            ),
             "->",
         );
         for (x, pos) in self.board.tentative.iter().enumerate() {
@@ -374,15 +389,21 @@ impl cursive::View for ScrabbleGame {
             printer.with_effect(cursive::theme::Effect::Dim, |printer| {
                 printer.print(
                     (
-                        6 * x + 3 + (self.current_player().letters.len() * 6 + 2),
-                        board.y + 2,
+                        x * letter_disp_len
+                            + 3
+                            + (self.current_player().letters.len() * letter_disp_len
+                                + letter_disp_offset),
+                        board.y + letter_disp_offset,
                     ),
                     &format!("{} {}", ch, Self::score_of(ch)),
                 );
                 printer.print(
                     (
-                        6 * x + 7 + (self.current_player().letters.len() * 6 + 2),
-                        board.y + 2,
+                        x * letter_disp_len
+                            + 7
+                            + (self.current_player().letters.len() * letter_disp_len
+                                + letter_disp_offset),
+                        board.y + letter_disp_offset,
                     ),
                     "|",
                 );
@@ -390,13 +411,17 @@ impl cursive::View for ScrabbleGame {
         }
 
         // Print log
-        printer.print_hline(board.keep_y().map_y(|y| y + 3), board.x * 4, "—");
+        printer.print_hline(board.keep_y().map_y(|y| y + 3), board.x * square_size, "—");
         let mut lines = 0;
         for entry in self.log.iter().rev() {
-            printer.print((0, board.y + 4 + lines), "-");
-            for line in entry.chars().collect::<Vec<char>>().chunks(board.x * 4 - 2) {
+            printer.print((0, board.y + square_size + lines), "-");
+            for line in entry
+                .chars()
+                .collect::<Vec<char>>()
+                .chunks(board.x * square_size - 2)
+            {
                 printer.print(
-                    (2, board.y + 4 + lines),
+                    (2, board.y + square_size + lines),
                     &line.into_iter().collect::<String>(),
                 );
                 lines += 1;
@@ -429,16 +454,14 @@ impl cursive::View for ScrabbleGame {
     }
 
     fn on_event(&mut self, event: Event) -> EventResult {
-        match ScrabbleEvent::from(event) {
-            ScrabbleEvent::Move(direction) => {
+        match SEvent::from(event) {
+            SEvent::Move(direction) => {
                 self.board.move_focus(&direction);
                 self.current_player_mut().previous_move = Some(direction);
             }
-            ScrabbleEvent::Letter(ch) => {
-                self.maybe_toggle_letter(ch.to_ascii_uppercase()).to_owned()
-            }
-            ScrabbleEvent::Delete => self.remove_focused(),
-            ScrabbleEvent::Confirm => match self.validate_placement() {
+            SEvent::Letter(ch) => self.maybe_toggle_letter(ch.to_ascii_uppercase()).to_owned(),
+            SEvent::Delete => self.remove_focused(),
+            SEvent::Confirm => match self.validate_placement() {
                 Ok(word_squares) => match self.score(&word_squares) {
                     Ok(words_and_scores) => {
                         let score_tot = words_and_scores.iter().map(|(_, score)| score).sum();
@@ -465,7 +488,7 @@ impl cursive::View for ScrabbleGame {
                 },
                 Err(e) => self.log.push(e.to_string()),
             },
-            ScrabbleEvent::Pass => {
+            SEvent::Pass => {
                 self.passes += 1;
                 if self.passes >= self.players.len() {
                     let scores_ranked = self.rank_end_scores();
@@ -490,9 +513,9 @@ impl cursive::View for ScrabbleGame {
                 self.current_player_mut().letters.append(&mut cleared);
                 self.next_turn();
             }
-            ScrabbleEvent::Suggest => self.suggest_placement(),
-            ScrabbleEvent::Exchange => self.exchange_letters(),
-            ScrabbleEvent::DeleteAll => {
+            SEvent::Suggest => self.suggest_placement(),
+            SEvent::Exchange => self.exchange_letters(),
+            SEvent::DeleteAll => {
                 let cleared = &mut self.board.clear_tentative_from_board();
                 self.current_player_mut().letters.append(cleared);
             }
