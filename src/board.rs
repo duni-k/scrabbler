@@ -425,7 +425,7 @@ impl View for ScrabbleBoard {
                         None => ColorStyle::primary(),
                     },
                     |printer| {
-                        printer.print((4 * x, y), &format!("{}", square));
+                        printer.print((x * Square::size(), y), &format!("{}", square));
                     },
                 );
             }
@@ -446,7 +446,7 @@ impl View for ScrabbleBoard {
                 printer.print((4 * x, y), &format!("[{} ]", ch));
             } else {
                 printer.print(
-                    (4 * x, y),
+                    (x * Square::size(), y),
                     &format!("{}", &self.squares[Self::coords_to_index(x, y)]),
                 );
             }
@@ -469,6 +469,10 @@ impl Square {
         let ch = self.ch;
         self.ch = None;
         ch
+    }
+
+    pub fn size() -> usize {
+        4
     }
 }
 
