@@ -1,8 +1,7 @@
 use scrabbler::game::ScrabbleGame;
 use std::{
-    error::Error,
     fs::{self, File},
-    io::{self, BufRead},
+    io::{self, BufRead, Error, ErrorKind},
 };
 
 use cursive::{
@@ -13,7 +12,6 @@ use cursive::{
 };
 use fst::Set;
 use serde_derive::Deserialize;
-use tokio;
 
 #[derive(Deserialize)]
 struct Config {
@@ -26,32 +24,39 @@ struct PlayerProfile {
     name: String,
 }
 
-#[tokio::main]
-async fn main() {
+fn main() -> Result<(), io::Error> {
     let conf: Config =
         toml::from_str(&fs::read_to_string("scrabble_config.toml").unwrap()).unwrap();
-    let dict = build_dict(&conf.lang_file)
-        .await
-        .expect("Could not build dict");
+    if let Ok(dict) = Set::from_iter(
+        io::BufReader::new(File::open(conf.lang_file)?)
+            .lines()
+            .flat_map(|l| l),
+    ) {
+        let mut siv = cursive::default();
+        siv.add_layer(
+            Dialog::new()
+                .title("SCRABBLER")
+                .content(
+                    LinearLayout::vertical()
+                        .child(Button::new_raw("New game", move |s| {
+                            new_game(s, dict.clone(), conf.players.clone())
+                        }))
+                        .child(Button::new_raw("How to play", help))
+                        .child(Button::new_raw("Exit", Cursive::quit)),
+                )
+                .h_align(HAlign::Center),
+        );
+        help(&mut siv);
+        siv.add_global_callback('?', help);
+        siv.run();
 
-    let mut siv = cursive::default();
-    siv.add_layer(
-        Dialog::new()
-            .title("SCRABBLER")
-            .content(
-                LinearLayout::vertical()
-                    .child(Button::new_raw("New game", move |s| {
-                        new_game(s, dict.clone(), conf.players.clone())
-                    }))
-                    .child(Button::new_raw("How to play", help))
-                    .child(Button::new_raw("Exit", Cursive::quit)),
-            )
-            .h_align(HAlign::Center),
-    );
-    help(&mut siv);
-    siv.add_global_callback('?', help);
-
-    siv.run();
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            ErrorKind::InvalidInput,
+            "Dict file not lexiographically ordered.",
+        ))
+    }
 }
 
 fn help(siv: &mut Cursive) {
@@ -156,13 +161,4 @@ fn start_game(siv: &mut Cursive, game: ScrabbleGame) {
                 s.pop_layer();
             }),
     );
-}
-
-pub async fn build_dict(file_name: &String) -> Result<Set<Vec<u8>>, Box<dyn Error>> {
-    let reader = io::BufReader::new(File::open(file_name)?);
-    Ok(Set::from_iter(
-        reader
-            .lines()
-            .map(|l| l.unwrap_or("".into()).trim().to_owned()),
-    )?)
 }
