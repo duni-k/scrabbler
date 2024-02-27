@@ -1,9 +1,11 @@
 #![allow(dead_code)]
 
+use std::collections::HashSet;
+
 type EdgeIndex = usize;
 type NodeIndex = usize;
 
-// custom data structure to hold dictionary and support operations required for scrabble
+// Custom data structure to hold dictionary and support operations required for scrabble.
 //
 // In short we construct a dawg-like tree where the first 26 nodes in the arena make up an implicit root
 // We can do this because we know the scrabble dictionary will include words for each initial letter
@@ -15,16 +17,14 @@ pub struct Dict {
 
 #[derive(Debug, Default)]
 struct Node {
-    letter: char,
-    first_child: Option<EdgeIndex>,
-    first_parent: Option<EdgeIndex>,
+    children_edges: HashSet<EdgeIndex>,
+    parent_edges: HashSet<EdgeIndex>,
     is_terminal: bool,
 }
 
 impl Node {
-    pub fn new(letter: char) -> Self {
+    pub fn new() -> Self {
         Self {
-            letter,
             ..Default::default()
         }
     }
@@ -32,140 +32,116 @@ impl Node {
 
 #[derive(Debug)]
 struct Edge {
-    target: NodeIndex,
-    next_outgoing_edge: Option<EdgeIndex>,
+    letter: char,
+    child: NodeIndex,
+    parent: NodeIndex,
+    id: EdgeIndex,
 }
 
 impl Dict {
     fn new() -> Self {
         Self {
-            nodes: Vec::from_iter(('A'..='Z').map(|letter| Node::new(letter))),
+            nodes: vec![Node::new()],
             edges: Vec::new(),
         }
     }
 
-    fn insert(&mut self, word: &str) {
-        if word.is_empty() {
-            return;
+    fn from_iter<'a, I>(iter: I) -> Result<Self, &'static str>
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        let mut dict = Self::new();
+        let start_node: NodeIndex = 0;
+        let mut previous_word = "";
+        for word in iter {
+            if word < previous_word {
+                return Err("Words not provided in lexiographical order.");
+            }
+            let last_node = dict.insert(start_node, &word);
         }
+        Ok(dict)
+    }
 
+    fn insert(&mut self, start_node: NodeIndex, word: &str) -> NodeIndex {
+        // if word < previous_word {
+        //     return Err("Input stream not lexiographically ordered.");
+        // }
+
+        // let cut_word = Self::cut_off_matching_prefix(word, previous_word);
 
         let letters: Vec<char> = word.to_ascii_uppercase().chars().collect();
-        let mut idx: NodeIndex = Self::root_index_of(&letters[0]);
-        for l_idx in 1..letters.len() {
-            let mut found_child = false;
-            for target in self.children(idx) {
-                if self.nodes[target].letter == letters[l_idx] {
-                    idx = target;
-                    found_child = true;
-                    break;
+        // let mut idx: NodeIndex = if cut_word.len() < word.len() {
+        //     start_node
+        // } else {
+        //     Self::root_index_of(&letters[0])
+        // };
+        let mut idx = start_node;
+        'letter_loop: for letter in letters {
+            for &edge in &self.nodes[idx].children_edges {
+                if self.edges[edge].letter == letter {
+                    idx = self.edges[edge].child;
+                    continue 'letter_loop;
                 }
             }
-            if !found_child {
-                let child_idx = self.add_node(letters[l_idx]);
-                self.add_edge(child_idx, idx);
-                idx = child_idx;
-            }
+            let child_idx = self.add_node();
+            self.add_edge(child_idx, idx, letter);
+            idx = child_idx;
         }
         self.nodes[idx].is_terminal = true;
 
+        idx
     }
 
     fn cut_off_matching_prefix(to_cut: &str, other: &str) -> String {
         to_cut
             .chars()
-            .zip(other.chars())
-            .map_while(|(a, b)| if a == b { Some(a) } else { None })
+            .zip(other.chars().chain(std::iter::repeat('?')))
+            .skip_while(|(a, b)| a == b)
+            .map(|(a, _)| a)
             .collect()
     }
+
     pub fn contains(&self, word: &str) -> bool {
         if word.is_empty() {
             return false;
         }
 
-        let letters: Vec<char> = word.to_ascii_uppercase().chars().collect();
-        let mut idx: NodeIndex = Self::root_index_of(&letters[0]);
-        // navigate through the dawg and check if the leaf node is terminal
-        for l_idx in 1..letters.len() {
-            let mut found_child = false;
-            for child_idx in self.children(idx) {
-                if self.nodes[child_idx].letter == letters[l_idx] {
-                    idx = child_idx;
-                    found_child = true;
-                    break;
+        let mut idx: NodeIndex = 0;
+        'letter_loop: for letter in word.to_ascii_uppercase().chars() {
+            for &child in &self.nodes[idx].children_edges {
+                if self.edges[child].letter == letter {
+                    idx = self.edges[child].child;
+                    continue 'letter_loop;
                 }
-            }
-            if !found_child {
                 return false;
             }
         }
         self.nodes[idx].is_terminal
     }
 
-    fn add_node(&mut self, letter: char) -> NodeIndex {
+    fn add_node(&mut self) -> NodeIndex {
         let index = self.nodes.len();
-        self.nodes.push(Node::new(letter));
+        self.nodes.push(Node::new());
         index
     }
 
-    fn add_edge(&mut self, child: NodeIndex, parent: NodeIndex) {
+    fn add_edge(&mut self, child: NodeIndex, parent: NodeIndex, letter: char) {
         // first we create an edge from the child to the parent
-        let edge_index = self.edges.len();
-        let node = &mut self.nodes[child];
+        let id = self.edges.len();
+        let child_node = &mut self.nodes[child];
+        child_node.parent_edges.insert(id);
+        let parent_node = &mut self.nodes[parent];
         self.edges.push(Edge {
-            target: parent,
-            next_outgoing_edge: node.first_parent,
+            letter,
+            child,
+            parent,
+            id,
         });
-        node.first_parent = Some(edge_index);
-        // and then the edge from parent to child
-        let edge_index = self.edges.len();
-        let node = &mut self.nodes[parent];
-        self.edges.push(Edge {
-            target: child,
-            next_outgoing_edge: node.first_child,
-        });
-        node.first_child = Some(edge_index);
+        parent_node.children_edges.insert(id);
     }
 
     fn root_index_of(letter: &char) -> NodeIndex {
         (letter.to_ascii_uppercase() as usize) - ('A' as usize)
-    }
-
-    fn parents(&self, source: NodeIndex) -> Successors {
-        let first_outgoing_edge = self.nodes[source].first_parent;
-        self.successors(first_outgoing_edge)
-    }
-
-    fn children(&self, source: NodeIndex) -> Successors {
-        let first_outgoing_edge = self.nodes[source].first_child;
-        self.successors(first_outgoing_edge)
-    }
-
-    fn successors(&self, first_outgoing_edge: Option<EdgeIndex>) -> Successors {
-        Successors {
-            graph: self,
-            current_edge_index: first_outgoing_edge,
-        }
-    }
-}
-
-pub struct Successors<'dict> {
-    graph: &'dict Dict,
-    current_edge_index: Option<EdgeIndex>,
-}
-
-impl<'dict> Iterator for Successors<'dict> {
-    type Item = NodeIndex;
-
-    fn next(&mut self) -> Option<NodeIndex> {
-        match self.current_edge_index {
-            None => None,
-            Some(edge_num) => {
-                let edge = &self.graph.edges[edge_num];
-                self.current_edge_index = edge.next_outgoing_edge;
-                Some(edge.target)
-            }
-        }
     }
 }
 
@@ -174,23 +150,19 @@ mod test {
     use super::*;
 
     #[test]
-    fn contain_finds_contained() -> Result<(), &'static str> {
-        let mut dict = Dict::new();
+    fn contain_finds_contained() {
+        let dict = Dict::from_iter(vec!["contained", "contained_also"]).unwrap();
 
-        dict.insert("test", "")?;
-        dict.insert("tests", "test")?;
-
-        assert!(dict.contains("test"));
-        Ok(assert!(dict.contains("tests")))
+        assert!(dict.contains("contained"));
+        assert!(dict.contains("contained_also"));
     }
 
     #[test]
-    fn contain_doesnt_find_not_contained() -> Result<(), &'static str> {
+    fn contain_doesnt_find_not_contained() {
         let mut dict = Dict::new();
 
-        dict.insert("tests", "")?;
-
-        Ok(assert!(!dict.contains("test")))
+        dict.insert(0, "contained");
+        assert!(!dict.contains("not_contained"));
     }
 
     #[test]
@@ -198,6 +170,19 @@ mod test {
         assert_eq!(
             Dict::cut_off_matching_prefix("test_accepted", "test"),
             "_accepted".to_string()
+        );
+
+        assert_eq!(
+            Dict::cut_off_matching_prefix("test_accepted", "test_also_accepted"),
+            "ccepted".to_string()
+        );
+        assert_eq!(
+            Dict::cut_off_matching_prefix("test_a", "test_b"),
+            "a".to_string()
+        );
+        assert_eq!(
+            Dict::cut_off_matching_prefix("Aword", "B"),
+            "Aword".to_string()
         );
     }
 }
