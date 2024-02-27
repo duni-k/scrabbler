@@ -72,17 +72,11 @@ impl Dict {
     }
 
     fn cut_off_matching_prefix(to_cut: &str, other: &str) -> String {
-        if to_cut.len() < other.len() {
-            return to_cut.into();
-        }
-        let to_cut: Vec<char> = to_cut.chars().collect();
-        let other: Vec<char> = other.chars().collect();
-        let mut i = 0;
-        while i < other.len() && to_cut[i] == other[i] {
-            i += 1;
-        }
-
-        to_cut[i..to_cut.len()].iter().collect()
+        to_cut
+            .chars()
+            .zip(other.chars())
+            .map_while(|(a, b)| if a == b { Some(a) } else { None })
+            .collect()
     }
     pub fn contains(&self, word: &str) -> bool {
         if word.is_empty() {
