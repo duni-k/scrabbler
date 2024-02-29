@@ -2,6 +2,7 @@ use crate::scrabble_event::SEvent;
 use crate::{
     board::{Multiplier, ScrabbleBoard, Square},
     direction::Direction,
+    gaddag::Gaddag,
 };
 
 use cursive::{
@@ -10,7 +11,7 @@ use cursive::{
     views::Dialog,
     Vec2,
 };
-use fst::Set;
+
 use itertools::Itertools;
 use rand::prelude::SliceRandom;
 
@@ -21,13 +22,13 @@ type ScrabbleScore = usize;
 
 pub struct ScrabbleGame {
     board: ScrabbleBoard,
-    dict: Set<Vec<u8>>,
-    players: Vec<Player>,
     current_player: PlayerIndex,
+    dict: Gaddag,
     letters_bag: Vec<char>,
     log: Vec<String>,
-    turn: usize,
     passes: usize,
+    players: Vec<Player>,
+    turn: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -36,7 +37,7 @@ pub struct Options {
 }
 
 impl ScrabbleGame {
-    pub fn new(dict: Set<Vec<u8>>, player_names: &Vec<String>) -> Self {
+    pub fn new(dict: Gaddag, player_names: &[String]) -> Self {
         let mut letters = vec![
             vec!['A'; 9],
             vec!['B'; 2],
@@ -79,13 +80,13 @@ impl ScrabbleGame {
 
         Self {
             board: ScrabbleBoard::new(),
-            players,
-            letters_bag: letters,
-            dict,
-            log: vec!["Game started! Good luck :)".to_string()],
             current_player: 0,
-            turn: 0,
+            dict,
+            letters_bag: letters,
+            log: vec!["Game started! Good luck :)".to_string()],
             passes: 0,
+            players,
+            turn: 0,
         }
     }
 
@@ -124,7 +125,7 @@ impl ScrabbleGame {
         let mut words_and_scores = Vec::new();
         let mut not_accepted = Vec::new();
         for squares in word_squares {
-            let word = squares.iter().map(|sq| sq.ch.unwrap()).collect();
+            let word = squares.iter().map(|sq| sq.ch.unwrap()).collect::<String>();
             if !self.dict.contains(&word) {
                 not_accepted.push(word);
                 continue;

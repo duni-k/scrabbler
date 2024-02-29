@@ -1,8 +1,10 @@
-use scrabbler::{dict::Dict, game::ScrabbleGame};
+use scrabbler::{gaddag::Gaddag, game::ScrabbleGame};
 
 use std::{
+    error::Error,
     fs::{self, File},
-    io::{self, BufRead, ErrorKind},
+    io::{BufRead, BufReader, Write},
+    path::Path,
 };
 
 use cursive::{
@@ -11,12 +13,12 @@ use cursive::{
     views::{Button, Dialog, DummyView, EditView, LinearLayout, Panel, SelectView},
     Cursive,
 };
-use fst::Set;
 use serde_derive::Deserialize;
 
 #[derive(Deserialize)]
 struct Config {
-    lang_file: String,
+    raw_dict: Box<Path>,
+    processed_dict: Box<Path>,
     players: Vec<PlayerProfile>,
 }
 
@@ -25,39 +27,43 @@ struct PlayerProfile {
     name: String,
 }
 
-fn main() -> Result<(), io::Error> {
-    let conf: Config =
-        toml::from_str(&fs::read_to_string("scrabble_config.toml").unwrap()).unwrap();
-    if let Ok(dict) = Set::from_iter(
-        io::BufReader::new(File::open(conf.lang_file)?)
-            .lines()
-            .flat_map(|l| l),
-    ) {
-        let mut siv = cursive::default();
-        siv.add_layer(
-            Dialog::new()
-                .title("SCRABBLER")
-                .content(
-                    LinearLayout::vertical()
-                        .child(Button::new_raw("New game", move |s| {
-                            new_game(s, dict.clone(), conf.players.clone())
-                        }))
-                        .child(Button::new_raw("How to play", help))
-                        .child(Button::new_raw("Exit", Cursive::quit)),
-                )
-                .h_align(HAlign::Center),
-        );
-        help(&mut siv);
-        siv.add_global_callback('?', help);
-        siv.run();
-
-        Ok(())
+fn main() -> Result<(), Box<dyn Error>> {
+    let conf: Config = toml::from_str(&fs::read_to_string("scrabble_config.toml")?)?;
+    let dict = if let Ok(dict_bytes) = fs::read(&conf.processed_dict) {
+        Gaddag::from_bytes(dict_bytes)?
     } else {
-        Err(io::Error::new(
-            ErrorKind::InvalidInput,
-            "Dict file not lexiographically ordered.",
-        ))
-    }
+        let dict = Gaddag::from_words(
+            BufReader::new(File::open(&conf.raw_dict)?)
+                .lines()
+                .flatten(),
+        );
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&conf.processed_dict)?
+            .write_all(dict.as_bytes())?;
+        dict
+    };
+
+    let mut siv = cursive::default();
+    siv.add_layer(
+        Dialog::new()
+            .title("SCRABBLER")
+            .content(
+                LinearLayout::vertical()
+                    .child(Button::new_raw("New game", move |s| {
+                        new_game(s, dict.clone(), &conf.players)
+                    }))
+                    .child(Button::new_raw("How to play", help))
+                    .child(Button::new_raw("Exit", Cursive::quit)),
+            )
+            .h_align(HAlign::Center),
+    );
+    help(&mut siv);
+    siv.add_global_callback('?', help);
+    siv.run();
+
+    Ok(())
 }
 
 fn help(siv: &mut Cursive) {
@@ -77,7 +83,7 @@ Ctrl+p will pass the turn.
     ));
 }
 
-fn new_game(siv: &mut Cursive, dict: Set<Vec<u8>>, player_profiles: Vec<PlayerProfile>) {
+fn new_game(siv: &mut Cursive, dict: Gaddag, player_profiles: &[PlayerProfile]) {
     let buttons = LinearLayout::vertical()
         .child(Button::new("New player", add_player))
         .child(Button::new("Delete", delete_player))
@@ -91,7 +97,7 @@ fn new_game(siv: &mut Cursive, dict: Set<Vec<u8>>, player_profiles: Vec<PlayerPr
                 })
             {
                 if !player_names.is_empty() {
-                    start_game(s, ScrabbleGame::new(dict.clone(), player_names))
+                    start_game(s, ScrabbleGame::new(dict.clone(), player_names));
                 }
             }
         }))

@@ -1,8 +1,7 @@
-lang_file = "dict_en.txt"
+raw_dict = "dict_en.txt"
+processed_dict = "gaddag.fst"
 
 [[players]]
 name = "Edvard"
-games_won = 0
 [[players]]
 name = "Stella"
-games_won = 0
