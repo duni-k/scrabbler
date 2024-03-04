@@ -1,8 +1,11 @@
-use crate::scrabble_event::SEvent;
+use std::collections::HashMap;
+
 use crate::{
-    board::{Multiplier, ScrabbleBoard, Square},
+    board::{Alignment, Board, Multiplier, Square},
     direction::Direction,
     gaddag::Gaddag,
+    scrabble_event::SEvent,
+    solver::Solver,
 };
 
 use cursive::{
@@ -18,10 +21,9 @@ use rand::prelude::SliceRandom;
 const N_LETTERS: usize = 7;
 
 type PlayerIndex = usize;
-type ScrabbleScore = usize;
 
-pub struct ScrabbleGame {
-    board: ScrabbleBoard,
+pub struct Game {
+    board: Board,
     current_player: PlayerIndex,
     dict: Gaddag,
     letters_bag: Vec<char>,
@@ -36,7 +38,7 @@ pub struct Options {
     pub n_players: usize,
 }
 
-impl ScrabbleGame {
+impl Game {
     pub fn new(dict: Gaddag, player_names: &[String]) -> Self {
         let mut letters = vec![
             vec!['A'; 9],
@@ -79,7 +81,7 @@ impl ScrabbleGame {
         }
 
         Self {
-            board: ScrabbleBoard::new(),
+            board: Board::new(),
             current_player: 0,
             dict,
             letters_bag: letters,
@@ -121,7 +123,11 @@ impl ScrabbleGame {
         Ok(self.board.collect_tentative()?)
     }
 
-    fn score(&mut self, word_squares: &Vec<Vec<Square>>) -> Result<Vec<(String, usize)>, String> {
+    // Returns words and their scores if dict contains words, otherwise Err
+    fn try_score(
+        &mut self,
+        word_squares: &Vec<Vec<Square>>,
+    ) -> Result<Vec<(String, usize)>, String> {
         let mut words_and_scores = Vec::new();
         let mut not_accepted = Vec::new();
         for squares in word_squares {
@@ -153,10 +159,27 @@ impl ScrabbleGame {
             ));
         }
 
-        if !not_accepted.is_empty() {
-            Err(format!("Word(s) not accepted: {:?}.", not_accepted))
-        } else {
+        if not_accepted.is_empty() {
+            let score_tot = words_and_scores.iter().map(|(_, score)| score).sum();
+            self.current_player_mut().add_score(score_tot);
+            self.log.push(if words_and_scores.len() == 1 {
+                format!(
+                    "{} played {} for {} points.",
+                    self.current_player().name,
+                    words_and_scores.iter().next().unwrap().0,
+                    score_tot
+                )
+            } else {
+                format!(
+                    "{} played {:?}, {} points total.",
+                    self.current_player().name,
+                    words_and_scores,
+                    score_tot,
+                )
+            });
             Ok(words_and_scores)
+        } else {
+            Err(format!("Word(s) not accepted: {:?}.", not_accepted))
         }
     }
 
@@ -273,81 +296,28 @@ impl ScrabbleGame {
             })
     }
 
-    // Exhaustively search the board for the placement of letters
-    // that provides the greatest score (and place those letters on the board tentatively)
-    // this is way too complex, we need to make use of the dawg properly
     fn suggest_placement(&mut self) {
         let mut cleared = self.board.clear_tentative_from_board();
         self.current_player_mut().letters.append(&mut cleared);
 
-        let mut best: Vec<(Vec2, char)> = Vec::new();
-        let mut best_score = 0;
-        let letters = self.current_player().letters.clone();
-        let all_combinations = (1..=letters.len()).flat_map(|len| {
-            letters
-                .iter()
-                .cloned()
-                .permutations(len)
-                .collect::<Vec<Vec<char>>>()
-        });
+        let solver = Solver::new(&self.board, self.current_player().letters.clone());
+    }
 
-        for y in 0..self.board.size.y {
-            for x in 0..self.board.size.x {
-                for mut combination in all_combinations.clone() {
-                    let (mut x, y) = (x, y);
-                    while let Some(letter) = combination.pop() {
-                        if self.board.has_letter_unchecked(x, y) {
-                            combination.push(letter);
-                        } else {
-                            self.board.place_at(letter, &Vec2 { x, y });
-                            self.board.tentative.insert(Vec2 { x, y });
-                        }
-                        if !self.board.tentative.is_empty() {
-                            if let Ok(word_squares) = self.validate_placement() {
-                                if let Ok(words_and_scores) = self.score(&word_squares) {
-                                    let score_tot: usize =
-                                        words_and_scores.iter().map(|(_, score)| score).sum();
-                                    if score_tot > best_score {
-                                        best = self
-                                            .board
-                                            .tentative
-                                            .iter()
-                                            .cloned()
-                                            .map(|pos| (pos, self.board.letter_at(&pos).unwrap()))
-                                            .collect();
-                                        best_score = score_tot;
-                                    }
-                                }
-                            }
-                        }
+    fn update_crosscheck(&mut self, placed: &HashMap<Vec2, char>, a: Alignment) {
+        //     for (pos, letter) in placed {
+        //         let neighbors = match a {
+        //             Alignment::Horizontal => {
+        //                 ()
+        //             }
+        //             Alignment:: Vertical => {
 
-                        x += 1;
-                        if !self.board.within_bounds(x as isize, y as isize) {
-                            break;
-                        }
-                    }
-                    // wander down
-                    // do same as above
-                    self.board.clear_tentative_from_board();
-                }
-            }
-        }
-
-        for (pos, letter) in best {
-            let index = self
-                .current_player()
-                .letters
-                .iter()
-                .position(|&ch| ch == letter)
-                .unwrap();
-            self.current_player_mut().letters.remove(index);
-            self.board.place_at(letter, &pos);
-            self.board.tentative.insert(pos);
-        }
+        //             }
+        //         }
+        //     }
     }
 }
 
-impl cursive::View for ScrabbleGame {
+impl cursive::View for Game {
     fn draw(&self, printer: &cursive::Printer) {
         let board = self.board.size;
         let square_size = Square::size();
@@ -463,30 +433,14 @@ impl cursive::View for ScrabbleGame {
             SEvent::Letter(ch) => self.maybe_toggle_letter(ch.to_ascii_uppercase()).to_owned(),
             SEvent::Delete => self.remove_focused(),
             SEvent::Confirm => match self.validate_placement() {
-                Ok(word_squares) => match self.score(&word_squares) {
-                    Ok(words_and_scores) => {
-                        let score_tot = words_and_scores.iter().map(|(_, score)| score).sum();
-                        self.current_player_mut().add_score(score_tot);
-                        self.log.push(if words_and_scores.len() == 1 {
-                            format!(
-                                "{} played {} for {} points.",
-                                self.current_player().name,
-                                words_and_scores.iter().next().unwrap().0,
-                                score_tot
-                            )
-                        } else {
-                            format!(
-                                "{} played {:?}, {} points total.",
-                                self.current_player().name,
-                                words_and_scores,
-                                score_tot,
-                            )
-                        });
-                        self.next_turn();
+                Ok(word_squares) => {
+                    if let Err(e) = self.try_score(&word_squares) {
+                        self.log.push(e);
+                    } else {
                         self.board.tentative.clear();
+                        self.next_turn();
                     }
-                    Err(e) => self.log.push(e),
-                },
+                }
                 Err(e) => self.log.push(e.to_string()),
             },
             SEvent::Pass => {
@@ -502,7 +456,6 @@ impl cursive::View for ScrabbleGame {
                                     .map(|(rank, name, score)| {
                                         format!("{}: {} scored {} points.", rank + 1, name, score)
                                     })
-                                    .collect::<Vec<String>>()
                                     .join("\n"),
                             )),
                         );

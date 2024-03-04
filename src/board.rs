@@ -14,15 +14,15 @@ use crate::direction::Direction;
 
 const BOARD_SIZE: usize = 15;
 
-pub struct ScrabbleBoard {
-    squares: Vec<Square>,
+pub struct Board {
     focus: Vec2,
-    pub tentative: HashSet<Vec2>,
-    pub size: Vec2,
     inserted: HashSet<Vec2>,
+    pub size: Vec2,
+    pub tentative: HashSet<Vec2>,
+    squares: Vec<Square>,
 }
 
-impl ScrabbleBoard {
+impl Board {
     pub fn new() -> Self {
         let mut board = Self {
             squares: vec![Square::default(); BOARD_SIZE * BOARD_SIZE],
@@ -146,17 +146,17 @@ impl ScrabbleBoard {
 
     pub fn neighbors(&self, pos: &Vec2) -> Vec<Vec2> {
         let neighbors = vec![
-            (pos.x - 1, pos.y),
-            (pos.x + 1, pos.y),
-            (pos.x, pos.y + 1),
-            (pos.x, pos.y - 1),
+            pos.map_x(|x| x - 1),
+            pos.map_x(|x| x + 1),
+            pos.map_y(|y| y + 1),
+            pos.map_y(|y| y - 1),
         ];
 
         neighbors
             .iter()
-            .filter_map(|p| {
-                if self.squares[Self::coords_to_index(p.0, p.1)].ch.is_some() {
-                    Some(Vec2::new(p.0, p.1))
+            .filter_map(|&p| {
+                if self.squares[Self::coords_to_index(p.x, p.y)].ch.is_some() {
+                    Some(p)
                 } else {
                     None
                 }
@@ -411,7 +411,7 @@ impl ScrabbleBoard {
     }
 }
 
-impl View for ScrabbleBoard {
+impl View for Board {
     fn draw(&self, printer: &Printer) {
         for (y, row) in self.squares.chunks(BOARD_SIZE).enumerate() {
             for (x, square) in row.iter().enumerate() {
@@ -458,10 +458,12 @@ impl View for ScrabbleBoard {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct Square {
     pub ch: Option<char>,
     pub mult: Option<Multiplier>,
+    pub crosscheck_vert: HashSet<char>,
+    pub crosscheck_hori: HashSet<char>,
 }
 
 impl Square {
@@ -494,9 +496,12 @@ impl fmt::Display for Square {
 
 impl Default for Square {
     fn default() -> Self {
+        let crosscheck = HashSet::from_iter('A'..='Z');
         Self {
             ch: None,
             mult: None,
+            crosscheck_vert: crosscheck.clone(),
+            crosscheck_hori: crosscheck,
         }
     }
 }

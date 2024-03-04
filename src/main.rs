@@ -29,19 +29,15 @@ struct PlayerProfile {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let conf: Config = toml::from_str(&fs::read_to_string("scrabble_config.toml")?)?;
-    let dict = if let Ok(dict_bytes) = fs::read(&conf.processed_dict) {
-        Gaddag::from_bytes(dict_bytes)?
+    let dict = if let Ok(bytes) = fs::read(&conf.processed_dict) {
+        Gaddag::from_bytes(bytes)?
     } else {
         let dict = Gaddag::from_words(
             BufReader::new(File::open(&conf.raw_dict)?)
                 .lines()
                 .flatten(),
         );
-        fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&conf.processed_dict)?
-            .write_all(dict.as_bytes())?;
+        File::create(&conf.processed_dict)?.write_all(dict.as_bytes())?;
         dict
     };
 
@@ -67,20 +63,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn help(siv: &mut Cursive) {
-    siv.add_layer(Dialog::info(
-        "
-Welcome to Scrabbler!
-
-Controls:
-Use arrow keys or <[HJKL]> to navigate.
-Press <Enter> to attempt placement.
-Ctrl+e will exchange letters currently placed with random from the bag.
-Ctrl+d will delete all letters currently in tentative placement.
-Ctrl+s will suggest the best possible placement (according to the algorithm):
-Ctrl+p will pass the turn.
-
-? to bring up this screen during game.",
-    ));
+    siv.add_layer(Dialog::info(include_str!("../help_msg.txt")).title("Welcome to Scrabbler!"));
 }
 
 fn new_game(siv: &mut Cursive, dict: Gaddag, player_profiles: &[PlayerProfile]) {
