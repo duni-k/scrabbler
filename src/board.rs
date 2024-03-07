@@ -14,6 +14,7 @@ use crate::direction::Direction;
 
 const BOARD_SIZE: usize = 15;
 
+#[derive(Clone)]
 pub struct Board {
     focus: Vec2,
     inserted: HashSet<Vec2>,
@@ -144,7 +145,7 @@ impl Board {
         self.squares.get(Self::coords_to_index(x, y)).unwrap()
     }
 
-    pub fn neighbors(&self, pos: &Vec2) -> Vec<Vec2> {
+    pub fn vacant_neighbors(&self, pos: &Vec2) -> Vec<Vec2> {
         let neighbors = vec![
             pos.map_x(|x| x - 1),
             pos.map_x(|x| x + 1),
@@ -155,7 +156,7 @@ impl Board {
         neighbors
             .iter()
             .filter_map(|&p| {
-                if self.squares[Self::coords_to_index(p.x, p.y)].ch.is_some() {
+                if self.squares[Self::coords_to_index(p.x, p.y)].ch.is_none() {
                     Some(p)
                 } else {
                     None
@@ -402,11 +403,11 @@ impl Board {
         word_squares
     }
 
-    fn index_to_coords(&self, idx: usize) -> (usize, usize) {
+    pub fn index_to_coords(&self, idx: usize) -> (usize, usize) {
         (idx % self.size.x, idx / self.size.y)
     }
 
-    fn coords_to_index(x: usize, y: usize) -> usize {
+    pub fn coords_to_index(x: usize, y: usize) -> usize {
         y * BOARD_SIZE + x
     }
 }
