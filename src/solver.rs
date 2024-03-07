@@ -13,13 +13,13 @@ const ALPHA_LEN: usize = 26;
 
 pub struct Solver<'game> {
     board: &'game Board,
-    // the 26 bits after that correspond to A-Z in the horizontal crosscheck
     // the first 26 bits correspond to A-Z on the vertical crosscheck,
+    // the 26 bits after that correspond to A-Z in the horizontal crosscheck
     crosscheck: Vec<u64>,
     gaddag: &'game Gaddag,
-    rack: Vec<char>,
     is_transposed: bool,
     legal_moves: Vec<Vec<(char, Vec2)>>,
+    rack: Vec<char>,
 }
 
 impl Solver<'_> {
@@ -47,7 +47,7 @@ impl Solver<'_> {
     }
 
     // maybe this should be handled by game-instance instead, that way we
-    // can probably do some smarter validation of words therewithin
+    // can probably do some smarter validation of placements therewithin
     fn update_crosscheck(&mut self) {}
 
     fn potential_anchors(&self) -> Vec<Vec2> {
