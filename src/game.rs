@@ -123,11 +123,12 @@ impl Game {
         Ok(self.board.collect_tentative()?)
     }
 
-    // Returns words and their scores if dict contains words, otherwise Err
+    // Returns words and their scores if dictionary contains words, otherwise returns
+    // all the words that are not in the dictionary
     fn try_score(
         &mut self,
         word_squares: &Vec<Vec<Square>>,
-    ) -> Result<Vec<(String, usize)>, String> {
+    ) -> Result<Vec<(String, usize)>, Vec<String>> {
         let mut words_and_scores = Vec::new();
         let mut not_accepted = Vec::new();
         for squares in word_squares {
@@ -179,7 +180,7 @@ impl Game {
             });
             Ok(words_and_scores)
         } else {
-            Err(format!("Word(s) not accepted: {:?}.", not_accepted))
+            Err(not_accepted)
         }
     }
 
@@ -300,20 +301,11 @@ impl Game {
         let mut cleared = self.board.clear_tentative_from_board();
         self.current_player_mut().letters.append(&mut cleared);
 
-        let solver = Solver::new(&self.board, self.current_player().letters.clone());
-    }
-
-    fn update_crosscheck(&mut self, placed: &HashMap<Vec2, char>, a: Alignment) {
-        //     for (pos, letter) in placed {
-        //         let neighbors = match a {
-        //             Alignment::Horizontal => {
-        //                 ()
-        //             }
-        //             Alignment:: Vertical => {
-
-        //             }
-        //         }
-        //     }
+        let solver = Solver::new(
+            &self.board,
+            self.current_player().letters.clone(),
+            &self.dict,
+        );
     }
 }
 
@@ -338,7 +330,7 @@ impl cursive::View for Game {
                     letter_disp_len * x + letter_disp_offset,
                     board.y + letter_disp_offset,
                 ),
-                &format!("{} {}", ch, Self::score_of(*ch)),
+                &format!("{ch} {}", Self::score_of(*ch)),
             );
             printer.print(
                 (
@@ -366,7 +358,7 @@ impl cursive::View for Game {
                                 + letter_disp_offset),
                         board.y + letter_disp_offset,
                     ),
-                    &format!("{} {}", ch, Self::score_of(ch)),
+                    &format!("{ch} {}", Self::score_of(ch)),
                 );
                 printer.print(
                     (
@@ -435,7 +427,7 @@ impl cursive::View for Game {
             SEvent::Confirm => match self.validate_placement() {
                 Ok(word_squares) => {
                     if let Err(e) = self.try_score(&word_squares) {
-                        self.log.push(e);
+                        self.log.push(format!("{:#?}", e));
                     } else {
                         self.board.tentative.clear();
                         self.next_turn();
@@ -454,7 +446,7 @@ impl cursive::View for Game {
                                 scores_ranked
                                     .iter()
                                     .map(|(rank, name, score)| {
-                                        format!("{}: {} scored {} points.", rank + 1, name, score)
+                                        format!("{rank}: {name} scored {score} points.")
                                     })
                                     .join("\n"),
                             )),
@@ -487,7 +479,7 @@ impl cursive::View for Game {
 struct Player {
     name: String,
     letters: Vec<char>,
-    score: ScrabbleScore,
+    score: usize,
     previous_move: Option<Direction>,
 }
 
@@ -501,7 +493,7 @@ impl Player {
         }
     }
 
-    fn add_score(&mut self, score: ScrabbleScore) {
+    fn add_score(&mut self, score: usize) {
         self.score += score;
     }
 }

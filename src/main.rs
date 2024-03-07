@@ -1,4 +1,4 @@
-use scrabbler::{gaddag::Gaddag, game::ScrabbleGame};
+use scrabbler::{gaddag::Gaddag, game::Game};
 
 use std::{
     error::Error,
@@ -80,7 +80,7 @@ fn new_game(siv: &mut Cursive, dict: Gaddag, player_profiles: &[PlayerProfile]) 
                 })
             {
                 if !player_names.is_empty() {
-                    start_game(s, ScrabbleGame::new(dict.clone(), player_names));
+                    start_game(s, Game::new(dict.clone(), player_names));
                 }
             }
         }))
@@ -138,7 +138,7 @@ fn delete_player(s: &mut Cursive) {
     }
 }
 
-fn start_game(siv: &mut Cursive, game: ScrabbleGame) {
+fn start_game(siv: &mut Cursive, game: Game) {
     siv.add_layer(
         Dialog::new()
             .title("SCRABBLER")

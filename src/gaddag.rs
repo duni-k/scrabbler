@@ -1,22 +1,26 @@
 // Credit to https://github.com/amedeedaboville/fst-gaddag,
 // where this code was stolen from (and then cut down and rewritten)
 
-pub use fst::raw::{CompiledAddr, Node};
+pub use fst::raw::{CompiledAddr, Node as FstNode};
 use fst::{Result, Set};
 use std::{collections::BTreeSet, iter};
 
 pub static SEP: u8 = b'+';
 pub static STR_SEP: &str = "+";
 
-/*
- * CARES:
- * SERAC
- * ERAC+S
- * RAC+ES
- * AC+RES
- * C+ARES
- *
-*/
+// newtype compiledaddr, type alias not enough to
+// stop users from misusing api by sending random usize
+// as a "node"
+#[derive(Clone, Copy)]
+pub struct Node {
+    addr: CompiledAddr,
+}
+
+impl Node {
+    fn new(addr: CompiledAddr) -> Self {
+        Self { addr }
+    }
+}
 
 #[derive(Clone)]
 pub struct Gaddag {
@@ -29,6 +33,10 @@ impl Gaddag {
     pub fn contains(&self, input: &str) -> bool {
         self.set
             .contains(input.chars().rev().map(|ch| ch as u8).collect::<Vec<u8>>())
+    }
+
+    pub fn root(&self) -> Node {
+        Node::new(self.set.as_fst().root().addr())
     }
 
     ///Takes a Fst::Set and returns a Gaddag.
@@ -56,8 +64,8 @@ impl Gaddag {
     /// This means the input doesn't have to be a full word, but has to be a prefix
     /// of a word in the dictionary. Will return None if the word doesn't exist in the
     /// dictionary.
-    pub fn node_for_prefix(&self, prefix: &str) -> Option<CompiledAddr> {
-        let mut current_node: Node = self.set.as_fst().root();
+    pub fn node_for_prefix(&self, prefix: &str) -> Option<Node> {
+        let mut current_node: FstNode = self.set.as_fst().root();
         for ch in prefix.chars() {
             if let Some(transition_idx) = current_node.find_input(ch as u8) {
                 let next_node = self
@@ -69,16 +77,29 @@ impl Gaddag {
                 return None;
             }
         }
-        Some(current_node.addr())
-    }
-    /// Attempts to follow the node in the GADDAG, and returns the next node.
-    pub fn can_next(&self, node_addr: CompiledAddr, next: char) -> Option<CompiledAddr> {
-        let current_node = self.set.as_fst().node(node_addr);
-        current_node
-            .find_input(next as u8)
-            .map(|i| current_node.transition(i).addr)
+        Some(Node::new(current_node.addr()))
     }
 
+    /// Attempts to follow the node in the GADDAG, and returns the next node.
+    pub fn next_node(&self, node: &Node, next: char) -> Option<Node> {
+        let current_node = self.set.as_fst().node(node.addr);
+        current_node
+            .find_input(next as u8)
+            .map(|i| Node::new(current_node.transition_addr(i)))
+    }
+
+    pub fn is_final(&self, node: &Node) -> bool {
+        self.set.as_fst().node(node.addr).is_final()
+    }
+
+    /*
+     * CARES becomes:
+     * SERAC
+     * ERAC+S
+     * RAC+ES
+     * AC+RES
+     * C+ARES
+     */
     fn build_entries(input: impl IntoIterator<Item = String>) -> BTreeSet<Vec<u8>> {
         let mut entries: BTreeSet<Vec<u8>> = BTreeSet::new();
         for word in input {
@@ -94,6 +115,7 @@ impl Gaddag {
                         .cloned()
                         .collect(),
                 );
+                // include the whole word without the SEP
                 entries.insert(word.as_bytes().into_iter().rev().cloned().collect());
             }
         }
