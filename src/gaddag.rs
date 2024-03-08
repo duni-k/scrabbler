@@ -3,7 +3,7 @@
 
 pub use fst::raw::{CompiledAddr, Node as FstNode};
 use fst::{Result, Set};
-use std::{collections::BTreeSet, iter};
+use std::iter;
 
 pub static SEP: u8 = b'+';
 pub static STR_SEP: &str = "+";
@@ -28,11 +28,8 @@ pub struct Gaddag {
 }
 
 impl Gaddag {
-    /// Returns true if the given word is in the dictionary.
-    /// Searches for `^input.rev()$`.
     pub fn contains(&self, input: &str) -> bool {
-        self.set
-            .contains(input.chars().rev().map(|ch| ch as u8).collect::<Vec<u8>>())
+        self.set.contains(input.as_bytes())
     }
 
     pub fn root(&self) -> Node {
@@ -46,8 +43,7 @@ impl Gaddag {
 
     ///Builds a Gaddag from its byte representation.
     pub fn from_bytes(bytes: Vec<u8>) -> Result<Self> {
-        let fst_set = Set::new(bytes)?;
-        Ok(Self::from_fst(fst_set))
+        Ok(Self::from_fst(Set::new(bytes)?))
     }
 
     ///Builds a Gaddag from an input list of words.
@@ -94,31 +90,31 @@ impl Gaddag {
 
     /*
      * CARES becomes:
-     * SERAC
+     * CARES
      * ERAC+S
      * RAC+ES
      * AC+RES
      * C+ARES
      */
-    fn build_entries(input: impl IntoIterator<Item = String>) -> BTreeSet<Vec<u8>> {
-        let mut entries: BTreeSet<Vec<u8>> = BTreeSet::new();
-        for word in input {
-            // we can skip reversing 0 elements because it's the same as reversing all elements
-            for n in 1..word.len() {
-                entries.insert(
-                    word.as_bytes()
-                        .iter()
-                        .take(n)
-                        .rev()
-                        .chain(iter::once(&SEP))
-                        .chain(word.as_bytes().iter().skip(n))
-                        .cloned()
-                        .collect(),
-                );
-                // include the whole word without the SEP
-                entries.insert(word.as_bytes().into_iter().rev().cloned().collect());
-            }
-        }
-        entries
+    fn build_entries(input: impl IntoIterator<Item = String>) -> impl IntoIterator<Item = Vec<u8>> {
+        // seriously doubt this is idiomatic but it SHOULD be better to return an iterator
+        // so we can lazily evaluate the input, because if input is buffered (which it is in our case),
+        // we never have to hold the entire input in memory.
+        input.into_iter().flat_map(|word| {
+            vec![
+                word.as_bytes().iter().cloned().collect(),
+                (1..word.len())
+                    .flat_map(|n| {
+                        word.as_bytes()
+                            .iter()
+                            .take(n)
+                            .rev()
+                            .chain(iter::once(&SEP))
+                            .chain(word.as_bytes().iter().skip(n))
+                            .cloned()
+                    })
+                    .collect(),
+            ]
+        })
     }
 }
