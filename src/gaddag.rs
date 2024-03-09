@@ -1,9 +1,8 @@
-use std::iter;
+use std::{collections::BTreeSet, iter};
 
 use fst::{raw::CompiledAddr, Result};
 
 static SEP: u8 = b'+';
-static STR_SEP: &str = "+";
 
 // newtype compiledaddr to stop misuse
 // (compiledaddr is just a type alias for usize)
@@ -25,7 +24,7 @@ pub struct Gaddag {
 }
 
 impl Gaddag {
-    pub fn contains(&self, input: &str) -> bool {
+    pub fn accepts(&self, input: &str) -> bool {
         self.set
             .contains(input.as_bytes().iter().rev().cloned().collect::<Vec<u8>>())
     }
@@ -87,31 +86,29 @@ impl Gaddag {
 
     /*
      * CARES becomes:
-     * ECARES
      * ERAC+S
      * RAC+ES
      * AC+RES
      * C+ARES
+     * ECARES
      */
-    fn build_entries(input: impl IntoIterator<Item = String>) -> impl IntoIterator<Item = Vec<u8>> {
-        // obviously not idiomatic but it SHOULD be better to return an iterator
-        // so we can lazily evaluate the input, because if input is buffered (which it is in our case),
-        // we never have to hold the entire input in memory. TODO benchmark it
-        input.into_iter().flat_map(|word| {
-            vec![
-                word.as_bytes().iter().rev().cloned().collect(),
-                (1..word.len())
-                    .flat_map(|n| {
-                        word.as_bytes()
-                            .iter()
-                            .take(n)
-                            .rev()
-                            .chain(iter::once(&SEP))
-                            .chain(word.as_bytes().iter().skip(n))
-                            .cloned()
-                    })
-                    .collect(),
-            ]
-        })
+    fn build_entries(input: impl IntoIterator<Item = String>) -> BTreeSet<Vec<u8>> {
+        let mut entries = BTreeSet::new();
+        for word in input {
+            for n in 1..word.len() {
+                entries.insert(
+                    word.as_bytes()
+                        .iter()
+                        .take(n)
+                        .rev()
+                        .chain(iter::once(&SEP))
+                        .chain(word.as_bytes().iter().skip(n))
+                        .cloned()
+                        .collect(),
+                );
+                entries.insert(word.as_bytes().iter().rev().cloned().collect());
+            }
+        }
+        entries
     }
 }
