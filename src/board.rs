@@ -10,8 +10,6 @@ use cursive::{
 };
 use itertools::Itertools;
 
-use crate::direction::Direction;
-
 const BOARD_SIZE: usize = 15;
 
 #[derive(Clone)]
@@ -20,13 +18,42 @@ pub struct Board {
     inserted: HashSet<Vec2>,
     pub size: Vec2,
     pub tentative: HashSet<Vec2>,
-    squares: Vec<Square>,
+    cells: Vec<Cell>,
+}
+
+#[derive(Clone)]
+pub struct Cell {
+    pub ch: Option<char>,
+    pub mult: Option<Multiplier>,
+}
+
+#[derive(Copy, Clone, Hash, PartialEq, Eq)]
+pub enum Multiplier {
+    Tw,
+    Dw,
+    Tl,
+    Dl,
+}
+
+/// Represents the alignment that the placement of tiles on the board corresponds with.
+#[derive(PartialEq, Eq, Clone, Copy)]
+pub enum Alignment {
+    Horizontal,
+    Vertical,
+    Invalid,
+}
+
+pub enum Direction {
+    Up,
+    Right,
+    Down,
+    Left,
 }
 
 impl Board {
     pub fn new() -> Self {
         let mut board = Self {
-            squares: vec![Square::default(); BOARD_SIZE * BOARD_SIZE],
+            cells: vec![Cell::default(); BOARD_SIZE * BOARD_SIZE],
             focus: Vec2::both_from((BOARD_SIZE - 1) / 2),
             size: Vec2::both_from(BOARD_SIZE),
             tentative: HashSet::new(),
@@ -92,9 +119,9 @@ impl Board {
     }
 
     pub fn place_at(&mut self, letter: char, pos: &Vec2) -> Option<char> {
-        let existing_ch = self.squares[Self::coords_to_index(pos.x, pos.y)].ch;
+        let existing_ch = self.cells[Self::coords_to_index(pos.x, pos.y)].ch;
         self.inserted.insert(pos.clone());
-        self.squares[Self::coords_to_index(pos.x, pos.y)].ch = Some(letter);
+        self.cells[Self::coords_to_index(pos.x, pos.y)].ch = Some(letter);
         existing_ch
     }
 
@@ -104,45 +131,49 @@ impl Board {
 
     pub fn clear_focused(&mut self) -> Option<char> {
         self.inserted.remove(&self.focus);
-        self.focused_square_mut().clear_letter()
+        self.focused_cell_mut().clear_letter()
     }
 
     pub fn focused_letter(&self) -> Option<char> {
-        self.focused_square().ch
+        self.focused_cell().ch
     }
 
-    fn focused_square(&self) -> &Square {
-        &self.squares[Self::coords_to_index(self.focus.x, self.focus.y)]
+    fn focused_cell(&self) -> &Cell {
+        &self.cells[Self::coords_to_index(self.focus.x, self.focus.y)]
     }
 
-    fn focused_square_mut(&mut self) -> &mut Square {
-        self.squares
+    fn focused_cell_mut(&mut self) -> &mut Cell {
+        self.cells
             .get_mut(Self::coords_to_index(self.focus.x, self.focus.y))
             .unwrap()
     }
 
     pub fn letter_at(&self, pos: &Vec2) -> Option<char> {
-        self.squares
+        self.cells
             .get(Self::coords_to_index(pos.x, pos.y))
-            .and_then(|square| square.ch)
+            .and_then(|cell| cell.ch)
     }
 
-    pub fn square_at(&self, pos: &Vec2) -> Option<&Square> {
-        self.squares.get(Self::coords_to_index(pos.x, pos.y))
+    pub fn letter_at_coords(&self, x: usize, y: usize) -> Option<char> {
+        self.cells
+            .get(Self::coords_to_index(x, y))
+            .and_then(|cell| cell.ch)
     }
 
-    fn square_mut_unchecked(&mut self, pos: &Vec2) -> &mut Square {
-        self.squares
-            .get_mut(Self::coords_to_index(pos.x, pos.y))
-            .unwrap()
+    pub fn cell_at(&self, pos: &Vec2) -> Option<&Cell> {
+        self.cells.get(Self::coords_to_index(pos.x, pos.y))
+    }
+
+    fn cell_mut(&mut self, pos: &Vec2) -> Option<&mut Cell> {
+        self.cells.get_mut(Self::coords_to_index(pos.x, pos.y))
     }
 
     pub fn center_pos(&self) -> Vec2 {
         self.size.map(|v| (v - 1) / 2)
     }
 
-    fn square_from_coords_unchecked(&self, x: usize, y: usize) -> &Square {
-        self.squares.get(Self::coords_to_index(x, y)).unwrap()
+    fn cell_from_coords(&self, x: usize, y: usize) -> Option<&Cell> {
+        self.cells.get(Self::coords_to_index(x, y))
     }
 
     pub fn vacant_neighbors(&self, pos: &Vec2) -> Vec<Vec2> {
@@ -156,7 +187,7 @@ impl Board {
         neighbors
             .iter()
             .filter_map(|&p| {
-                if self.squares[Self::coords_to_index(p.x, p.y)].ch.is_none() {
+                if self.cells[Self::coords_to_index(p.x, p.y)].ch.is_none() {
                     Some(p)
                 } else {
                     None
@@ -165,26 +196,27 @@ impl Board {
             .collect()
     }
 
-    pub fn has_letter_unchecked(&self, x: usize, y: usize) -> bool {
-        self.square_from_coords_unchecked(x, y).ch.is_some()
+    pub fn has_letter(&self, x: usize, y: usize) -> bool {
+        self.cell_from_coords(x, y)
+            .map_or(false, |cell| cell.ch.is_some())
     }
 
     pub fn mult_at(&self, x: usize, y: usize) -> Option<Multiplier> {
-        self.square_from_coords_unchecked(x, y).mult
+        self.cell_from_coords(x, y).and_then(|cell| cell.mult)
     }
 
     pub fn clear_tentative_from_board(&mut self) -> Vec<char> {
         let mut cleared = Vec::new();
         for pos in self.tentative.clone() {
-            cleared.push(self.square_mut_unchecked(&pos).clear_letter().unwrap());
+            cleared.push(self.cell_mut(&pos).unwrap().clear_letter().unwrap());
             self.tentative.remove(&pos);
         }
         self.tentative.clear();
         cleared
     }
 
-    fn square_mut_from_coords_unchecked(&mut self, x: usize, y: usize) -> &mut Square {
-        self.squares.get_mut(Self::coords_to_index(x, y)).unwrap()
+    fn cell_mut_from_coords(&mut self, x: usize, y: usize) -> Option<&mut Cell> {
+        self.cells.get_mut(Self::coords_to_index(x, y))
     }
 
     fn initialize_multipliers(&mut self) {
@@ -225,32 +257,34 @@ impl Board {
 
         for (mult, positions) in &init_mult {
             for pos in positions {
-                self.square_mut_unchecked(&pos).mult = Some(mult.clone());
+                self.cell_mut(&pos).unwrap().mult = Some(mult.clone());
             }
         }
 
         for y in 0..(HALF_WAY + 1) {
             for x in 0..(HALF_WAY + 1) {
-                self.square_mut_from_coords_unchecked(BOARD_SIZE - x - 1, y)
-                    .mult = self.square_from_coords_unchecked(x, y).mult;
+                self.cell_mut_from_coords(BOARD_SIZE - x - 1, y)
+                    .unwrap()
+                    .mult = self.cell_from_coords(x, y).unwrap().mult;
             }
         }
 
         for y in 0..(HALF_WAY + 1) {
             for x in 0..(BOARD_SIZE) {
-                self.square_mut_from_coords_unchecked(x, BOARD_SIZE - y - 1)
-                    .mult = self.square_from_coords_unchecked(x, y).mult;
+                self.cell_mut_from_coords(x, BOARD_SIZE - y - 1)
+                    .unwrap()
+                    .mult = self.cell_from_coords(x, y).unwrap().mult;
             }
         }
     }
 
-    pub fn tentative_alignment(&self) -> Alignment {
+    pub fn tentative_alignment(&self) -> Option<Alignment> {
         match self.tentative.len() {
-            0 => return Alignment::Invalid,
-            1 => return Alignment::Undefined,
+            0 => return Some(Alignment::Invalid),
+            1 => return None,
             2 => {
                 let mut tent = self.tentative.iter();
-                Alignment::new(tent.next().unwrap(), tent.next().unwrap())
+                Some(Alignment::new(tent.next().unwrap(), tent.next().unwrap()))
             }
             _ => {
                 let mut a = None;
@@ -258,15 +292,15 @@ impl Board {
                     if a.is_none() {
                         a = Some(Alignment::new(&this, &next));
                     } else if a != Some(Alignment::new(&this, &next)) {
-                        return Alignment::Invalid;
+                        return Some(Alignment::Invalid);
                     }
                 }
-                a.unwrap()
+                a
             }
         }
     }
 
-    pub fn collect_tentative(&mut self) -> Result<Vec<Vec<Square>>, String> {
+    pub fn collect_tentative(&mut self) -> Result<Vec<Vec<Cell>>, String> {
         let horizontal_pred = |pos: Vec2| pos.map_x(|x| x - 1);
         let horizontal_succ = |pos: Vec2| pos.map_x(|x| x + 1);
         let vertical_pred = |pos: Vec2| pos.map_y(|y| y - 1);
@@ -274,32 +308,32 @@ impl Board {
 
         let mut mults_to_clear: Vec<Vec2> = Vec::new();
         let res = match self.tentative_alignment() {
-            Alignment::Horizontal => Ok(self.collecter_aux(
+            Some(Alignment::Horizontal) => Ok(self.collecter_aux(
                 &mut mults_to_clear,
                 horizontal_pred,
                 horizontal_succ,
                 vertical_pred,
                 vertical_succ,
             )),
-            Alignment::Vertical => Ok(self.collecter_aux(
+            Some(Alignment::Vertical) => Ok(self.collecter_aux(
                 &mut mults_to_clear,
                 vertical_pred,
                 vertical_succ,
                 horizontal_pred,
                 horizontal_succ,
             )),
-            Alignment::Undefined => {
+            None => {
                 let mut curr = *self.tentative.iter().next().unwrap();
                 let mut mults_to_clear_hori = Vec::new();
                 while let Some(_) = self.letter_at(&horizontal_pred(curr)) {
                     curr = horizontal_pred(curr);
                 }
                 let mut hori = Vec::new();
-                while let Some(square) = self.square_at(&curr) {
-                    if square.ch.is_none() {
+                while let Some(cell) = self.cell_at(&curr) {
+                    if cell.ch.is_none() {
                         break;
                     }
-                    hori.push(square.clone());
+                    hori.push(cell.clone());
                     mults_to_clear_hori.push(curr.clone());
                     curr = horizontal_succ(curr);
                 }
@@ -310,11 +344,11 @@ impl Board {
                 }
 
                 let mut vert = Vec::new();
-                while let Some(square) = self.square_at(&curr) {
-                    if square.ch.is_none() {
+                while let Some(cell) = self.cell_at(&curr) {
+                    if cell.ch.is_none() {
                         break;
                     }
-                    vert.push(square.clone());
+                    vert.push(cell.clone());
                     mults_to_clear.push(curr.clone());
                     curr = vertical_succ(curr);
                 }
@@ -330,12 +364,12 @@ impl Board {
                     }
                 }
             }
-            Alignment::Invalid => return Err("Letters not aligned".to_string()),
+            Some(Alignment::Invalid) => return Err("Letters not aligned".to_string()),
         };
 
         if res.is_ok() {
             for pos in mults_to_clear {
-                self.square_mut_from_coords_unchecked(pos.x, pos.y).mult = None;
+                self.cell_mut_from_coords(pos.x, pos.y).unwrap().mult = None;
             }
         }
 
@@ -349,21 +383,21 @@ impl Board {
         outer_succ: impl Fn(Vec2) -> Vec2,
         inner_pred: impl Fn(Vec2) -> Vec2,
         inner_succ: impl Fn(Vec2) -> Vec2,
-    ) -> Vec<Vec<Square>> {
-        let mut word_squares: Vec<Vec<Square>> = Vec::new();
+    ) -> Vec<Vec<Cell>> {
+        let mut word_cells: Vec<Vec<Cell>> = Vec::new();
 
         let mut curr_main = *self.tentative.iter().next().unwrap();
         while let Some(_) = self.letter_at(&outer_pred(curr_main)) {
             curr_main = outer_pred(curr_main);
         }
 
-        let mut main_squares: Vec<Square> = Vec::new();
-        while let Some(square) = self.square_at(&curr_main) {
-            let mut inner_squares: Vec<Square> = Vec::new();
-            if square.ch.is_none() {
+        let mut main_cells: Vec<Cell> = Vec::new();
+        while let Some(cell) = self.cell_at(&curr_main) {
+            let mut inner_cells: Vec<Cell> = Vec::new();
+            if cell.ch.is_none() {
                 break;
             }
-            main_squares.push(square.clone());
+            main_cells.push(cell.clone());
             mults_to_clear.push(curr_main.clone());
             if self.tentative.contains(&curr_main) {
                 let mut curr = curr_main.clone();
@@ -373,34 +407,34 @@ impl Board {
                 ) {
                     (None, None) | (Some(_), Some(_)) => (),
                     (Some(_), None) => {
-                        while let Some(square) = self.square_at(&curr) {
-                            if square.ch.is_none() {
+                        while let Some(cell) = self.cell_at(&curr) {
+                            if cell.ch.is_none() {
                                 break;
                             }
-                            inner_squares.insert(0, square.clone());
+                            inner_cells.insert(0, cell.clone());
                             mults_to_clear.insert(0, curr.clone());
                             curr = inner_pred(curr);
                         }
-                        word_squares.push(inner_squares);
+                        word_cells.push(inner_cells);
                     }
                     (None, Some(_)) => {
-                        while let Some(square) = self.square_at(&curr) {
-                            if square.ch.is_none() {
+                        while let Some(cell) = self.cell_at(&curr) {
+                            if cell.ch.is_none() {
                                 break;
                             }
-                            inner_squares.push(square.clone());
+                            inner_cells.push(cell.clone());
                             mults_to_clear.push(curr.clone());
                             curr = inner_succ(curr);
                         }
-                        word_squares.push(inner_squares);
+                        word_cells.push(inner_cells);
                     }
                 }
             }
             curr_main = outer_succ(curr_main);
         }
-        word_squares.push(main_squares);
+        word_cells.push(main_cells);
 
-        word_squares
+        word_cells
     }
 
     pub fn index_to_coords(&self, idx: usize) -> (usize, usize) {
@@ -414,11 +448,11 @@ impl Board {
 
 impl View for Board {
     fn draw(&self, printer: &Printer) {
-        for (y, row) in self.squares.chunks(BOARD_SIZE).enumerate() {
-            for (x, square) in row.iter().enumerate() {
+        for (y, row) in self.cells.chunks(BOARD_SIZE).enumerate() {
+            for (x, cell) in row.iter().enumerate() {
                 printer.with_color(
-                    match square.mult {
-                        _ if square.ch.is_some() => ColorStyle::primary(),
+                    match cell.mult {
+                        _ if cell.ch.is_some() => ColorStyle::primary(),
                         Some(Multiplier::Dl) => ColorStyle::new(Black, Blue),
                         Some(Multiplier::Tl) => ColorStyle::new(Black, Blue.light()),
                         Some(Multiplier::Dw) => ColorStyle::new(Black, Red),
@@ -426,7 +460,7 @@ impl View for Board {
                         None => ColorStyle::primary(),
                     },
                     |printer| {
-                        printer.print((x * Square::size(), y), &format!("{}", square));
+                        printer.print((x * Cell::size(), y), &format!("{}", cell));
                     },
                 );
             }
@@ -447,8 +481,8 @@ impl View for Board {
                 printer.print((4 * x, y), &format!("[{} ]", ch));
             } else {
                 printer.print(
-                    (x * Square::size(), y),
-                    &format!("{}", &self.squares[Self::coords_to_index(x, y)]),
+                    (x * Cell::size(), y),
+                    &format!("{}", &self.cells[Self::coords_to_index(x, y)]),
                 );
             }
         })
@@ -459,16 +493,8 @@ impl View for Board {
     }
 }
 
-#[derive(Clone)]
-pub struct Square {
-    pub ch: Option<char>,
-    pub mult: Option<Multiplier>,
-    pub crosscheck_vert: HashSet<char>,
-    pub crosscheck_hori: HashSet<char>,
-}
-
-impl Square {
-    fn clear_letter(&mut self) -> Option<char> {
+impl Cell {
+    pub fn clear_letter(&mut self) -> Option<char> {
         let ch = self.ch;
         self.ch = None;
         ch
@@ -479,7 +505,7 @@ impl Square {
     }
 }
 
-impl fmt::Display for Square {
+impl fmt::Display for Cell {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -495,24 +521,13 @@ impl fmt::Display for Square {
     }
 }
 
-impl Default for Square {
+impl Default for Cell {
     fn default() -> Self {
-        let crosscheck = HashSet::from_iter('A'..='Z');
         Self {
             ch: None,
             mult: None,
-            crosscheck_vert: crosscheck.clone(),
-            crosscheck_hori: crosscheck,
         }
     }
-}
-
-#[derive(Copy, Clone, Hash, PartialEq, Eq)]
-pub enum Multiplier {
-    Tw,
-    Dw,
-    Tl,
-    Dl,
 }
 
 impl Multiplier {
@@ -537,14 +552,6 @@ impl fmt::Display for Multiplier {
             }
         )
     }
-}
-
-#[derive(PartialEq, Eq, Clone, Copy)]
-pub enum Alignment {
-    Horizontal,
-    Vertical,
-    Undefined,
-    Invalid,
 }
 
 impl Alignment {
