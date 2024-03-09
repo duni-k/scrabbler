@@ -1,10 +1,7 @@
-use std::collections::HashMap;
-
 use crate::{
-    board::{Alignment, Board, Multiplier, Square},
-    direction::Direction,
+    board::{Board, Cell, Direction, Multiplier},
+    event::SEvent,
     gaddag::Gaddag,
-    scrabble_event::SEvent,
     solver::Solver,
 };
 
@@ -106,7 +103,7 @@ impl Game {
         }
     }
 
-    fn validate_placement(&mut self) -> Result<Vec<Vec<Square>>, String> {
+    fn validate_placement(&mut self) -> Result<Vec<Vec<Cell>>, String> {
         if self.board.tentative.is_empty() {
             return Err("No letters placed.".to_string());
         }
@@ -127,7 +124,7 @@ impl Game {
     // all the words that are not in the dictionary
     fn try_score(
         &mut self,
-        word_squares: &Vec<Vec<Square>>,
+        word_squares: &Vec<Vec<Cell>>,
     ) -> Result<Vec<(String, usize)>, Vec<String>> {
         let mut words_and_scores = Vec::new();
         let mut not_accepted = Vec::new();
@@ -210,7 +207,7 @@ impl Game {
         if self.board.focused_letter().is_some()
             && !self.board.tentative.contains(self.board.focus())
         {
-            self.log.push("Square occupied".to_string());
+            self.log.push("Cell occupied".to_string());
             return;
         }
 
@@ -312,7 +309,7 @@ impl Game {
 impl cursive::View for Game {
     fn draw(&self, printer: &cursive::Printer) {
         let board = self.board.size;
-        let square_size = Square::size();
+        let square_size = Cell::size();
         self.board.draw(printer);
         printer.print_hline(board.keep_y().map_y(|y| y), board.x * square_size, "—");
         printer.print(
