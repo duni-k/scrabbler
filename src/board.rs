@@ -69,38 +69,32 @@ impl Board {
 
     // BFS through the board to make sure it's all connected
     pub fn is_connected(&self) -> bool {
+        let Some(inserted) = self.inserted.iter().next() else {
+            return false;
+        };
+
+        let neighbors = |pos: &Vec2| {
+            vec![
+                pos.map_x(|x| x + 1),
+                pos.map_x(|x| x - 1),
+                pos.map_y(|y| y - 1),
+                pos.map_y(|y| y + 1),
+            ]
+        };
+
+        let mut queue = Vec::new();
         let mut visited = HashSet::new();
-        'outer: for (i, cell) in self.squares.iter().enumerate() {
-            if cell.ch.is_some() {
-                let mut queue = Vec::new();
-                queue.push(self.index_to_coords(i));
-                loop {
-                    if let Some((x, y)) = queue.pop() {
-                        visited.insert((x, y));
-                        let mut push_neighbor = |x_n, y_n| {
-                            if self.within_bounds(x as isize, y as isize)
-                                && !visited.contains(&(x_n, y_n))
-                                && self.letter_at(&Vec2::new(x_n, y_n)).is_some()
-                            {
-                                queue.push((x_n, y_n));
-                            }
-                        };
-                        push_neighbor(x + 1, y);
-                        push_neighbor(x - 1, y);
-                        push_neighbor(x, y + 1);
-                        push_neighbor(x, y - 1);
-                    } else {
-                        break 'outer;
-                    }
+        queue.push(inserted);
+        while let Some(pos) = queue.pop() {
+            visited.insert(pos);
+            for neighbor in neighbors(&pos) {
+                if !visited.contains(&pos) && self.letter_at(&pos).is_some() {
+                    queue.push(&pos);
                 }
             }
         }
 
         visited.len() == self.inserted.len()
-    }
-
-    pub fn within_bounds(&self, x: isize, y: isize) -> bool {
-        x < (self.size.x as isize) && x >= 0 && y < (self.size.y as isize) && y >= 0
     }
 
     pub fn move_focus(&mut self, dir: &Direction) {
