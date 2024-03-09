@@ -1,4 +1,14 @@
-use scrabbler::{gaddag::Gaddag, game::Game};
+mod board;
+mod cell;
+mod event;
+mod gaddag;
+mod game;
+mod multiplier;
+mod solver;
+mod validator;
+
+use gaddag::Gaddag;
+use game::Game;
 
 use std::{
     error::Error,
