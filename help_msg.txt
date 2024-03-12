@@ -4,6 +4,7 @@ Controls:
 - <Ctrl>+e will exchange letters currently placed with random from the bag.
 - <Ctrl>+d will delete all letters currently in tentative placement.
 - <Ctrl>+s will suggest the best possible placement (according to the algorithm):
+- <Ctrl>+r will shuffle your letters around.
 - <Ctrl>+p will pass the turn.
 
 ? to bring up this screen during game.

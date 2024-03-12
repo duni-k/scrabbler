@@ -1,4 +1,4 @@
-use crate::direction::Direction;
+use crate::board::Direction;
 
 use cursive::event::{Event, Key};
 
@@ -8,6 +8,7 @@ pub enum SEvent {
     Pass,
     Confirm,
     Suggest,
+    Shuffle,
     Exchange,
     Delete,
     DeleteAll,
@@ -27,6 +28,7 @@ impl From<Event> for SEvent {
             Event::CtrlChar('e') => Self::Exchange,
             Event::CtrlChar('d') => Self::DeleteAll,
             Event::CtrlChar('s') => Self::Suggest,
+            Event::CtrlChar('r') => Self::Shuffle,
             Event::Key(Key::Enter) => Self::Confirm,
             _ => Self::Ignored,
         }

@@ -456,6 +456,7 @@ impl cursive::View for Game {
                 self.current_player_mut().letters.append(&mut cleared);
                 self.next_turn();
             }
+            SEvent::Shuffle => self.current_player_mut().shuffle_letters(),
             SEvent::Suggest => self.suggest_placement(),
             SEvent::Exchange => self.exchange_letters(),
             SEvent::DeleteAll => {
@@ -492,5 +493,8 @@ impl Player {
 
     fn add_score(&mut self, score: usize) {
         self.score += score;
+    }
+    fn shuffle_letters(&mut self) {
+        self.letters.shuffle(&mut rand::thread_rng());
     }
 }
