@@ -1,6 +1,8 @@
 # Scrabble game with simple TUI written in Rust.
 
-!["Screenshot of game."](game.png)
+<div align="center">
+  <img src="game.png" alt="Screenshot of game"/>
+</div>
 
 ## Goal
 Implementation of The World's Fastest Scrabble Program (1988) by Appel and Jacobson

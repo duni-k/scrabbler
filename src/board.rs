@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    fmt,
+    fmt, mem,
 };
 
 use cursive::{
@@ -10,14 +10,12 @@ use cursive::{
 };
 use itertools::Itertools;
 
-const BOARD_SIZE: usize = 15;
-
 #[derive(Clone)]
 pub struct Board {
     focus: Vec2,
     inserted: HashSet<Vec2>,
     pub size: Vec2,
-    pub tentative: HashSet<Vec2>,
+    tentative: HashSet<Vec2>,
     cells: Vec<Cell>,
 }
 
@@ -35,7 +33,7 @@ pub enum Multiplier {
     Dl,
 }
 
-/// Represents the alignment that the placement of tiles on the board corresponds with.
+/// Represents the alignment that the placement of tiles on the board corresponds to.
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub enum Alignment {
     Horizontal,
@@ -51,15 +49,15 @@ pub enum Direction {
 }
 
 impl Board {
-    pub fn new() -> Self {
+    pub fn new(size: usize) -> Self {
         let mut board = Self {
-            cells: vec![Cell::default(); BOARD_SIZE * BOARD_SIZE],
-            focus: Vec2::both_from((BOARD_SIZE - 1) / 2),
-            size: Vec2::both_from(BOARD_SIZE),
+            cells: vec![Cell::default(); size * size],
+            focus: Vec2::both_from((size - 1) / 2),
+            size: Vec2::both_from(size),
             tentative: HashSet::new(),
             inserted: HashSet::new(),
         };
-        board.initialize_multipliers();
+        board.initialize_multipliers(size);
         board
     }
 
@@ -69,27 +67,19 @@ impl Board {
 
     // BFS through the board to make sure it's all connected
     pub fn is_connected(&self) -> bool {
-        let Some(inserted) = self.inserted.iter().next() else {
+        let Some(&inserted) = self.inserted.iter().next() else {
             return false;
-        };
-
-        let neighbors = |pos: &Vec2| {
-            vec![
-                pos.map_x(|x| x + 1),
-                pos.map_x(|x| x - 1),
-                pos.map_y(|y| y - 1),
-                pos.map_y(|y| y + 1),
-            ]
         };
 
         let mut queue = Vec::new();
         let mut visited = HashSet::new();
+        let is_occupied = |p: &&Vec2| self.letter_at(p).is_some();
         queue.push(inserted);
         while let Some(pos) = queue.pop() {
             visited.insert(pos);
-            for neighbor in neighbors(&pos) {
-                if !visited.contains(&pos) && self.letter_at(&pos).is_some() {
-                    queue.push(&pos);
+            for neighbor in self.neighbors_satisfying_predicate(&pos, is_occupied) {
+                if !visited.contains(&neighbor) {
+                    queue.push(neighbor);
                 }
             }
         }
@@ -100,23 +90,41 @@ impl Board {
     pub fn move_focus(&mut self, dir: &Direction) {
         self.focus = match dir {
             Direction::Down => self.focus.map_y(|y| y + 1),
-            Direction::Up => self.focus.map_y(|y| if y > 0 { y } else { BOARD_SIZE } - 1),
+            Direction::Up => self
+                .focus
+                .map_y(|y| if y > 0 { y } else { self.size.y } - 1),
             Direction::Right => self.focus.map_x(|x| x + 1),
-            Direction::Left => self.focus.map_x(|x| if x > 0 { x } else { BOARD_SIZE } - 1),
+            Direction::Left => self
+                .focus
+                .map_x(|x| if x > 0 { x } else { self.size.x } - 1),
         }
-        .map(|v| v % BOARD_SIZE);
+        .map(|v| v % self.size.x);
     }
 
     pub fn place_focused(&mut self, letter: char) -> Option<char> {
-        let focus = self.focus().clone();
-        self.place_at(letter, &focus)
+        self.place_at(letter, &self.focus().clone())
     }
 
     pub fn place_at(&mut self, letter: char, pos: &Vec2) -> Option<char> {
-        let existing_ch = self.cells[Self::coords_to_index(pos.x, pos.y)].ch;
-        self.inserted.insert(pos.clone());
-        self.cells[Self::coords_to_index(pos.x, pos.y)].ch = Some(letter);
-        existing_ch
+        let Some(cell) = self.cell_at_mut(pos) else {
+            return None;
+        };
+        let previous = cell.ch;
+        cell.ch = Some(letter);
+        self.inserted.insert(self.focus.clone());
+        self.tentative.insert(self.focus.clone());
+        previous
+    }
+
+    pub fn place_focused_tentative(&mut self, letter: char) -> Result<Option<char>, &str> {
+        if self.letter_at(self.focus()).is_some() && !self.tentative.contains(self.focus()) {
+            return Err("Cell occupied");
+        }
+        Ok(self.place_focused(letter))
+    }
+
+    pub fn tentative(&self) -> &HashSet<Vec2> {
+        &self.tentative
     }
 
     pub fn focus(&self) -> &Vec2 {
@@ -124,8 +132,13 @@ impl Board {
     }
 
     pub fn clear_focused(&mut self) -> Option<char> {
-        self.inserted.remove(&self.focus);
-        self.focused_cell_mut().clear_letter()
+        self.clear_cell(&self.focus().clone())
+    }
+
+    fn clear_cell(&mut self, pos: &Vec2) -> Option<char> {
+        self.inserted.remove(pos);
+        self.tentative.remove(pos);
+        self.cell_at_mut(pos).and_then(|cell| cell.clear_letter())
     }
 
     pub fn focused_letter(&self) -> Option<char> {
@@ -133,44 +146,45 @@ impl Board {
     }
 
     fn focused_cell(&self) -> &Cell {
-        &self.cells[Self::coords_to_index(self.focus.x, self.focus.y)]
-    }
-
-    fn focused_cell_mut(&mut self) -> &mut Cell {
-        self.cells
-            .get_mut(Self::coords_to_index(self.focus.x, self.focus.y))
-            .unwrap()
+        self.cell_at(self.focus()).unwrap() // Always Some
     }
 
     pub fn letter_at(&self, pos: &Vec2) -> Option<char> {
+        self.cell_at(pos).and_then(|cell| cell.ch)
+    }
+
+    fn cell_at(&self, pos: &Vec2) -> Option<&Cell> {
         self.cells
-            .get(Self::coords_to_index(pos.x, pos.y))
-            .and_then(|cell| cell.ch)
+            .get(Self::coords_to_index(pos.x, pos.y, self.size.y))
     }
 
-    pub fn letter_at_coords(&self, x: usize, y: usize) -> Option<char> {
+    fn cell_at_mut(&mut self, pos: &Vec2) -> Option<&mut Cell> {
         self.cells
-            .get(Self::coords_to_index(x, y))
-            .and_then(|cell| cell.ch)
+            .get_mut(Self::coords_to_index(pos.x, pos.y, self.size.y))
     }
 
-    pub fn cell_at(&self, pos: &Vec2) -> Option<&Cell> {
-        self.cells.get(Self::coords_to_index(pos.x, pos.y))
+    fn cell_at_coords(&self, x: usize, y: usize) -> Option<&Cell> {
+        self.cells.get(Self::coords_to_index(x, y, self.size.y))
     }
 
-    fn cell_mut(&mut self, pos: &Vec2) -> Option<&mut Cell> {
-        self.cells.get_mut(Self::coords_to_index(pos.x, pos.y))
+    fn cell_at_coords_mut(&mut self, x: usize, y: usize) -> Option<&mut Cell> {
+        self.cells.get_mut(Self::coords_to_index(x, y, self.size.y))
     }
 
     pub fn center_pos(&self) -> Vec2 {
         self.size.map(|v| (v - 1) / 2)
     }
 
-    fn cell_from_coords(&self, x: usize, y: usize) -> Option<&Cell> {
-        self.cells.get(Self::coords_to_index(x, y))
+    pub fn vacant_neighbors(&self, pos: &Vec2) -> Vec<Vec2> {
+        let is_vacant = |p: &&Vec2| self.letter_at(p).is_none();
+        self.neighbors_satisfying_predicate(pos, is_vacant)
     }
 
-    pub fn vacant_neighbors(&self, pos: &Vec2) -> Vec<Vec2> {
+    fn neighbors_satisfying_predicate(
+        &self,
+        pos: &Vec2,
+        predicate: impl FnMut(&&Vec2) -> bool,
+    ) -> Vec<Vec2> {
         let neighbors = vec![
             pos.map_x(|x| x - 1),
             pos.map_x(|x| x + 1),
@@ -178,54 +192,44 @@ impl Board {
             pos.map_y(|y| y - 1),
         ];
 
-        neighbors
-            .iter()
-            .filter_map(|&p| {
-                if self.cells[Self::coords_to_index(p.x, p.y)].ch.is_none() {
-                    Some(p)
-                } else {
-                    None
-                }
-            })
-            .collect()
-    }
-
-    pub fn has_letter(&self, x: usize, y: usize) -> bool {
-        self.cell_from_coords(x, y)
-            .map_or(false, |cell| cell.ch.is_some())
+        neighbors.iter().filter(predicate).cloned().collect()
     }
 
     pub fn mult_at(&self, x: usize, y: usize) -> Option<Multiplier> {
-        self.cell_from_coords(x, y).and_then(|cell| cell.mult)
+        self.cell_at_coords(x, y).and_then(|cell| cell.mult)
     }
 
+    //
     pub fn clear_tentative_from_board(&mut self) -> Vec<char> {
         let mut cleared = Vec::new();
         for pos in self.tentative.clone() {
-            cleared.push(self.cell_mut(&pos).unwrap().clear_letter().unwrap());
-            self.tentative.remove(&pos);
+            cleared.push(self.clear_cell(&pos).unwrap());
         }
         self.tentative.clear();
         cleared
     }
 
-    fn cell_mut_from_coords(&mut self, x: usize, y: usize) -> Option<&mut Cell> {
-        self.cells.get_mut(Self::coords_to_index(x, y))
+    pub fn clear_tentative(&mut self) {
+        self.tentative.clear();
     }
 
-    fn initialize_multipliers(&mut self) {
-        const HALF_WAY: usize = (BOARD_SIZE - 1) / 2;
+    fn cell_mut_at_coords(&mut self, x: usize, y: usize) -> Option<&mut Cell> {
+        self.cells.get_mut(Self::coords_to_index(x, y, self.size.y))
+    }
+
+    fn initialize_multipliers(&mut self, size: usize) {
+        let half_way = (size - 1) / 2;
         let init_mult = HashMap::from([
             (
                 Multiplier::Tw,
-                vec![Vec2::zero(), Vec2::new(0, HALF_WAY), Vec2::new(HALF_WAY, 0)],
+                vec![Vec2::zero(), Vec2::new(0, half_way), Vec2::new(half_way, 0)],
             ),
             (
                 Multiplier::Tl,
                 vec![
-                    Vec2::new(1, HALF_WAY - 2),
-                    Vec2::new(HALF_WAY - 2, 1),
-                    Vec2::new(HALF_WAY - 2, HALF_WAY - 2),
+                    Vec2::new(1, half_way - 2),
+                    Vec2::new(half_way - 2, 1),
+                    Vec2::new(half_way - 2, half_way - 2),
                 ],
             ),
             (
@@ -239,53 +243,49 @@ impl Board {
                 Multiplier::Dl,
                 vec![
                     Vec2::new(0, 3),
-                    Vec2::new(HALF_WAY, 3),
+                    Vec2::new(half_way, 3),
                     Vec2::new(3, 0),
-                    Vec2::new(3, HALF_WAY),
-                    Vec2::new(2, HALF_WAY - 1),
-                    Vec2::new(HALF_WAY - 1, 2),
-                    Vec2::new(HALF_WAY - 1, HALF_WAY - 1),
+                    Vec2::new(3, half_way),
+                    Vec2::new(2, half_way - 1),
+                    Vec2::new(half_way - 1, 2),
+                    Vec2::new(half_way - 1, half_way - 1),
                 ],
             ),
         ]);
 
         for (mult, positions) in &init_mult {
             for pos in positions {
-                self.cell_mut(&pos).unwrap().mult = Some(mult.clone());
+                self.cell_at_mut(&pos).unwrap().mult = Some(mult.clone());
             }
         }
 
-        for y in 0..(HALF_WAY + 1) {
-            for x in 0..(HALF_WAY + 1) {
-                self.cell_mut_from_coords(BOARD_SIZE - x - 1, y)
-                    .unwrap()
-                    .mult = self.cell_from_coords(x, y).unwrap().mult;
+        for y in 0..(half_way + 1) {
+            for x in 0..(half_way + 1) {
+                self.cell_at_coords_mut(size - x - 1, y).unwrap().mult =
+                    self.cell_at_coords(x, y).unwrap().mult;
             }
         }
 
-        for y in 0..(HALF_WAY + 1) {
-            for x in 0..(BOARD_SIZE) {
-                self.cell_mut_from_coords(x, BOARD_SIZE - y - 1)
-                    .unwrap()
-                    .mult = self.cell_from_coords(x, y).unwrap().mult;
+        for y in 0..(half_way + 1) {
+            for x in 0..(size) {
+                self.cell_at_coords_mut(x, size - y - 1).unwrap().mult =
+                    self.cell_at_coords_mut(x, y).unwrap().mult;
             }
         }
     }
 
     pub fn tentative_alignment(&self) -> Option<Alignment> {
+        let mut tent = self.tentative.iter();
         match self.tentative.len() {
             0 => return Some(Alignment::Invalid),
             1 => return None,
-            2 => {
-                let mut tent = self.tentative.iter();
-                Some(Alignment::new(tent.next().unwrap(), tent.next().unwrap()))
-            }
+            2 => Some(Alignment::new(tent.next().unwrap(), tent.next().unwrap())),
             _ => {
                 let mut a = None;
-                for (this, next) in self.tentative.iter().tuple_windows() {
+                for (this, next) in tent.tuple_windows() {
                     if a.is_none() {
-                        a = Some(Alignment::new(&this, &next));
-                    } else if a != Some(Alignment::new(&this, &next)) {
+                        a = Some(Alignment::new(this, next));
+                    } else if a != Some(Alignment::new(this, next)) {
                         return Some(Alignment::Invalid);
                     }
                 }
@@ -295,10 +295,10 @@ impl Board {
     }
 
     pub fn collect_tentative(&mut self) -> Result<Vec<Vec<Cell>>, String> {
-        let horizontal_pred = |pos: Vec2| pos.map_x(|x| x - 1);
-        let horizontal_succ = |pos: Vec2| pos.map_x(|x| x + 1);
-        let vertical_pred = |pos: Vec2| pos.map_y(|y| y - 1);
-        let vertical_succ = |pos: Vec2| pos.map_y(|y| y + 1);
+        let horizontal_pred = |pos: &Vec2| pos.map_x(|x| x - 1);
+        let horizontal_succ = |pos: &Vec2| pos.map_x(|x| x + 1);
+        let vertical_pred = |pos: &Vec2| pos.map_y(|y| y - 1);
+        let vertical_succ = |pos: &Vec2| pos.map_y(|y| y + 1);
 
         let mut mults_to_clear: Vec<Vec2> = Vec::new();
         let res = match self.tentative_alignment() {
@@ -319,8 +319,8 @@ impl Board {
             None => {
                 let mut curr = *self.tentative.iter().next().unwrap();
                 let mut mults_to_clear_hori = Vec::new();
-                while let Some(_) = self.letter_at(&horizontal_pred(curr)) {
-                    curr = horizontal_pred(curr);
+                while let Some(_) = self.letter_at(&horizontal_pred(&curr)) {
+                    curr = horizontal_pred(&curr);
                 }
                 let mut hori = Vec::new();
                 while let Some(cell) = self.cell_at(&curr) {
@@ -329,12 +329,12 @@ impl Board {
                     }
                     hori.push(cell.clone());
                     mults_to_clear_hori.push(curr.clone());
-                    curr = horizontal_succ(curr);
+                    curr = horizontal_succ(&curr);
                 }
 
                 let mut curr = *self.tentative.iter().next().unwrap();
-                while let Some(_) = self.letter_at(&vertical_pred(curr)) {
-                    curr = vertical_pred(curr);
+                while let Some(_) = self.letter_at(&vertical_pred(&curr)) {
+                    curr = vertical_pred(&curr);
                 }
 
                 let mut vert = Vec::new();
@@ -344,7 +344,7 @@ impl Board {
                     }
                     vert.push(cell.clone());
                     mults_to_clear.push(curr.clone());
-                    curr = vertical_succ(curr);
+                    curr = vertical_succ(&curr);
                 }
                 match (hori.len(), vert.len()) {
                     (_, 1) => {
@@ -363,7 +363,7 @@ impl Board {
 
         if res.is_ok() {
             for pos in mults_to_clear {
-                self.cell_mut_from_coords(pos.x, pos.y).unwrap().mult = None;
+                self.cell_mut_at_coords(pos.x, pos.y).unwrap().mult = None;
             }
         }
 
@@ -373,16 +373,16 @@ impl Board {
     fn collecter_aux(
         &self,
         mults_to_clear: &mut Vec<Vec2>,
-        outer_pred: impl Fn(Vec2) -> Vec2,
-        outer_succ: impl Fn(Vec2) -> Vec2,
-        inner_pred: impl Fn(Vec2) -> Vec2,
-        inner_succ: impl Fn(Vec2) -> Vec2,
+        outer_pred: impl Fn(&Vec2) -> Vec2,
+        outer_succ: impl Fn(&Vec2) -> Vec2,
+        inner_pred: impl Fn(&Vec2) -> Vec2,
+        inner_succ: impl Fn(&Vec2) -> Vec2,
     ) -> Vec<Vec<Cell>> {
         let mut word_cells: Vec<Vec<Cell>> = Vec::new();
 
         let mut curr_main = *self.tentative.iter().next().unwrap();
-        while let Some(_) = self.letter_at(&outer_pred(curr_main)) {
-            curr_main = outer_pred(curr_main);
+        while let Some(_) = self.letter_at(&outer_pred(&curr_main)) {
+            curr_main = outer_pred(&curr_main);
         }
 
         let mut main_cells: Vec<Cell> = Vec::new();
@@ -393,11 +393,11 @@ impl Board {
             }
             main_cells.push(cell.clone());
             mults_to_clear.push(curr_main.clone());
-            if self.tentative.contains(&curr_main) {
+            if self.tentative().contains(&curr_main) {
                 let mut curr = curr_main.clone();
                 match (
-                    self.letter_at(&inner_pred(curr_main)),
-                    self.letter_at(&inner_succ(curr_main)),
+                    self.letter_at(&inner_pred(&curr_main)),
+                    self.letter_at(&inner_succ(&curr_main)),
                 ) {
                     (None, None) | (Some(_), Some(_)) => (),
                     (Some(_), None) => {
@@ -407,7 +407,7 @@ impl Board {
                             }
                             inner_cells.insert(0, cell.clone());
                             mults_to_clear.insert(0, curr.clone());
-                            curr = inner_pred(curr);
+                            curr = inner_pred(&curr);
                         }
                         word_cells.push(inner_cells);
                     }
@@ -418,13 +418,13 @@ impl Board {
                             }
                             inner_cells.push(cell.clone());
                             mults_to_clear.push(curr.clone());
-                            curr = inner_succ(curr);
+                            curr = inner_succ(&curr);
                         }
                         word_cells.push(inner_cells);
                     }
                 }
             }
-            curr_main = outer_succ(curr_main);
+            curr_main = outer_succ(&curr_main);
         }
         word_cells.push(main_cells);
 
@@ -435,14 +435,14 @@ impl Board {
         (idx % self.size.x, idx / self.size.y)
     }
 
-    pub fn coords_to_index(x: usize, y: usize) -> usize {
-        y * BOARD_SIZE + x
+    pub fn coords_to_index(x: usize, y: usize, col_len: usize) -> usize {
+        y * col_len + x
     }
 }
 
 impl View for Board {
     fn draw(&self, printer: &Printer) {
-        for (y, row) in self.cells.chunks(BOARD_SIZE).enumerate() {
+        for (y, row) in self.cells.chunks(self.size.y).enumerate() {
             for (x, cell) in row.iter().enumerate() {
                 printer.with_color(
                     match cell.mult {
@@ -469,15 +469,13 @@ impl View for Board {
             });
         }
 
+        // Print the focused cell
+        let Vec2 { x, y } = *self.focus();
         printer.with_color(ColorStyle::highlight(), |printer| {
-            let (x, y) = self.focus.pair();
-            if let Some(ch) = self.letter_at(self.focus()) {
+            if let Some(ch) = self.focused_letter() {
                 printer.print((4 * x, y), &format!("[{} ]", ch));
             } else {
-                printer.print(
-                    (x * Cell::size(), y),
-                    &format!("{}", &self.cells[Self::coords_to_index(x, y)]),
-                );
+                printer.print((x * Cell::size(), y), &format!("{}", self.focused_cell()));
             }
         })
     }
@@ -489,9 +487,7 @@ impl View for Board {
 
 impl Cell {
     pub fn clear_letter(&mut self) -> Option<char> {
-        let ch = self.ch;
-        self.ch = None;
-        ch
+        mem::take(&mut self.ch)
     }
 
     pub fn size() -> usize {

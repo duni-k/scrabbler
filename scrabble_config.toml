@@ -2,6 +2,6 @@ raw_dict = "dict_en.txt"
 processed_dict = "gaddag.fst"
 
 [[players]]
-name = "Edvard"
+name = "John"
 [[players]]
-name = "Stella"
+name = "Jane"

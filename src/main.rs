@@ -1,11 +1,7 @@
 mod board;
-mod cell;
 mod event;
 mod gaddag;
 mod game;
-mod multiplier;
-mod solver;
-mod validator;
 
 use gaddag::Gaddag;
 use game::Game;
@@ -78,9 +74,6 @@ fn help(siv: &mut Cursive) {
 
 fn new_game(siv: &mut Cursive, dict: Gaddag, player_profiles: &[PlayerProfile]) {
     let buttons = LinearLayout::vertical()
-        .child(Button::new("New player", add_player))
-        .child(Button::new("Delete", delete_player))
-        .child(DummyView)
         .child(Button::new("Start game", move |s| {
             if let Some(player_names) =
                 &s.call_on_name("select-players", |view: &mut SelectView<String>| {
@@ -94,6 +87,10 @@ fn new_game(siv: &mut Cursive, dict: Gaddag, player_profiles: &[PlayerProfile]) 
                 }
             }
         }))
+        .child(DummyView)
+        .child(Button::new("New player", add_player))
+        .child(Button::new("Delete", delete_player))
+        .child(DummyView)
         .child(Button::new("Back", |s| {
             s.pop_layer();
         }));

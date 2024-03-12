@@ -2,7 +2,6 @@ use crate::{
     board::{Board, Cell, Direction, Multiplier},
     event::SEvent,
     gaddag::Gaddag,
-    solver::Solver,
 };
 
 use cursive::{
@@ -37,6 +36,7 @@ pub struct Options {
 
 impl Game {
     pub fn new(dict: Gaddag, player_names: &[String]) -> Self {
+        const BOARD_SIZE: usize = 15;
         let mut letters = vec![
             vec!['A'; 9],
             vec!['B'; 2],
@@ -64,7 +64,7 @@ impl Game {
             vec!['X'; 1],
             vec!['Y'; 2],
             vec!['Z'; 1],
-            vec![' '; 2],
+            // vec![' '; 2], TODO
         ]
         .into_iter()
         .flatten()
@@ -78,7 +78,7 @@ impl Game {
         }
 
         Self {
-            board: Board::new(),
+            board: Board::new(BOARD_SIZE),
             current_player: 0,
             dict,
             letters_bag: letters,
@@ -89,32 +89,15 @@ impl Game {
         }
     }
 
-    fn score_of(letter: char) -> usize {
-        match letter {
-            'A' | 'E' | 'I' | 'L' | 'N' | 'O' | 'R' | 'S' | 'T' | 'U' => 1,
-            'D' | 'G' => 2,
-            'B' | 'C' | 'M' | 'P' => 3,
-            'F' | 'H' | 'V' | 'W' | 'Y' => 4,
-            'K' => 5,
-            'J' | 'X' => 8,
-            'Q' | 'Z' => 10,
-            ' ' => 0,
-            _ => unreachable!(),
-        }
-    }
-
     fn validate_placement(&mut self) -> Result<Vec<Vec<Cell>>, String> {
-        if self.board.tentative.is_empty() {
+        if self.board.tentative().is_empty() {
             return Err("No letters placed.".to_string());
         }
 
-        if self.turn == 0 {
-            let center = self.board.size.map(|v| (v - 1) / 2);
-            if !self.board.tentative.contains(&center) {
-                return Err("First placement must contain center square.".to_string());
-            }
-        } else if !self.board.is_connected() {
-            return Err("Letters not connected to existing.".to_string());
+        if self.turn > 0 && !self.board.is_connected() {
+            return Err("Letters not connected to existing grid.".to_string());
+        } else if self.turn == 0 && !self.board.tentative().contains(&self.board.center_pos()) {
+            return Err("First placement must contain center square.".to_string());
         }
 
         Ok(self.board.collect_tentative()?)
@@ -129,8 +112,8 @@ impl Game {
         let mut words_and_scores = Vec::new();
         let mut not_accepted = Vec::new();
         for squares in word_squares {
-            let word = squares.iter().map(|sq| sq.ch.unwrap()).collect::<String>();
-            if !self.dict.contains(&word) {
+            let word = squares.iter().filter_map(|sq| sq.ch).collect::<String>();
+            if !self.dict.accepts(&word) {
                 not_accepted.push(word);
                 continue;
             }
@@ -203,37 +186,31 @@ impl Game {
         self.turn += 1;
     }
 
-    fn maybe_toggle_letter(&mut self, ch: char) {
-        if self.board.focused_letter().is_some()
-            && !self.board.tentative.contains(self.board.focus())
-        {
-            self.log.push("Cell occupied".to_string());
-            return;
-        }
-
+    fn maybe_toggle_letter(&mut self, letter: char) {
         if let Some(idx) = self
             .current_player()
             .letters
             .iter()
-            .position(|&p_ch| p_ch == ch)
+            .position(|&p_ch| p_ch == letter)
         {
-            if let Some(existing_ch) = self.board.place_focused(ch) {
-                self.current_player_mut().letters.push(existing_ch);
-            }
-            self.board.tentative.insert(self.board.focus().clone());
-            self.current_player_mut().letters.remove(idx);
+            match self.board.place_focused_tentative(letter) {
+                Ok(Some(letter)) => self.current_player_mut().letters.push(letter),
+                Err(e) => {
+                    self.log.push(e.to_string());
+                    return;
+                }
+                Ok(None) => (),
+            };
+            self.current_player_mut().letters.swap_remove(idx);
         } else {
             self.log
-                .push("No such letter belonging to player.".to_string())
+                .push("No such letter belonging to player.".to_string());
         }
     }
 
     fn remove_focused(&mut self) {
-        if self.board.tentative.contains(self.board.focus()) {
-            let focused = self.board.focused_letter().unwrap().clone();
-            self.current_player_mut().letters.push(focused);
-            self.board.tentative.remove(&self.board.focus().clone());
-            self.board.clear_focused();
+        if let Some(letter) = self.board.clear_focused() {
+            self.current_player_mut().letters.push(letter);
         }
     }
 
@@ -245,13 +222,11 @@ impl Game {
         self.players.get_mut(self.current_player).unwrap()
     }
 
-    fn exchange_letters(&mut self) {
-        if self.board.tentative.len() > self.letters_bag.len() {
-            self.log
-                .push("Can't exchange more letters than are left in bag.".to_string());
-            return;
+    fn exchange_letters(&mut self) -> Result<(), String> {
+        if self.board.tentative().len() > self.letters_bag.len() {
+            return Err("Can't exchange more letters than are left in bag.".to_string());
         }
-        let amount = self.board.tentative.len();
+        let amount = self.board.tentative().len();
         self.letters_bag
             .append(&mut self.board.clear_tentative_from_board());
         self.letters_bag.shuffle(&mut rand::thread_rng());
@@ -260,7 +235,7 @@ impl Game {
                 self.current_player_mut().letters.push(letter);
             }
         }
-        self.next_turn();
+        Ok(())
     }
 
     //  Returns a vector of tuples where the first element is the placement of the player,
@@ -279,7 +254,7 @@ impl Game {
                             .sum::<isize>(),
                 )
             })
-            .sorted_unstable_by_key(|(_, score)| score.clone())
+            .sorted_unstable_by_key(|(_, score)| -score.clone())
             .fold(Vec::new(), |mut ranking, (p_name, p_score)| {
                 if let Some(&(prev_rank, _, prev_p_score)) = ranking.last() {
                     if prev_p_score == p_score {
@@ -294,15 +269,18 @@ impl Game {
             })
     }
 
-    fn suggest_placement(&mut self) {
-        let mut cleared = self.board.clear_tentative_from_board();
-        self.current_player_mut().letters.append(&mut cleared);
-
-        let solver = Solver::new(
-            &self.board,
-            self.current_player().letters.clone(),
-            &self.dict,
-        );
+    fn score_of(letter: char) -> usize {
+        match letter {
+            'A' | 'E' | 'I' | 'L' | 'N' | 'O' | 'R' | 'S' | 'T' | 'U' => 1,
+            'D' | 'G' => 2,
+            'B' | 'C' | 'M' | 'P' => 3,
+            'F' | 'H' | 'V' | 'W' | 'Y' => 4,
+            'K' => 5,
+            'J' | 'X' => 8,
+            'Q' | 'Z' => 10,
+            ' ' => 0,
+            _ => unreachable!(),
+        }
     }
 }
 
@@ -344,7 +322,7 @@ impl cursive::View for Game {
             ),
             "->",
         );
-        for (x, pos) in self.board.tentative.iter().enumerate() {
+        for (x, pos) in self.board.tentative().iter().enumerate() {
             let ch = self.board.letter_at(&pos).unwrap();
             printer.with_effect(cursive::theme::Effect::Dim, |printer| {
                 printer.print(
@@ -420,13 +398,16 @@ impl cursive::View for Game {
                 self.current_player_mut().previous_move = Some(direction);
             }
             SEvent::Letter(ch) => self.maybe_toggle_letter(ch.to_ascii_uppercase()).to_owned(),
+
             SEvent::Delete => self.remove_focused(),
             SEvent::Confirm => match self.validate_placement() {
                 Ok(word_squares) => {
                     if let Err(e) = self.try_score(&word_squares) {
-                        self.log.push(format!("{:#?}", e));
+                        self.log
+                            .push(format!("Word(s) not in dictionary: {:?}.", e));
                     } else {
-                        self.board.tentative.clear();
+                        // TODO self.validator.update_crosscheck(&self.board.tentative());
+                        self.board.clear_tentative();
                         self.next_turn();
                     }
                 }
@@ -457,8 +438,14 @@ impl cursive::View for Game {
                 self.next_turn();
             }
             SEvent::Shuffle => self.current_player_mut().shuffle_letters(),
-            SEvent::Suggest => self.suggest_placement(),
-            SEvent::Exchange => self.exchange_letters(),
+            SEvent::Exchange => {
+                if let Err(e) = self.exchange_letters() {
+                    self.log.push(e)
+                } else {
+                    self.next_turn()
+                }
+            }
+
             SEvent::DeleteAll => {
                 let cleared = &mut self.board.clear_tentative_from_board();
                 self.current_player_mut().letters.append(cleared);
@@ -494,6 +481,7 @@ impl Player {
     fn add_score(&mut self, score: usize) {
         self.score += score;
     }
+
     fn shuffle_letters(&mut self) {
         self.letters.shuffle(&mut rand::thread_rng());
     }
