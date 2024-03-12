@@ -1,5 +1,7 @@
 # Scrabble game with simple TUI written in Rust.
 
+!["Screenshot of game."](game.png)
+
 ## Goal
 Implementation of The World's Fastest Scrabble Program (1988) by Appel and Jacobson
 using the GADDAG-structure as introduced by Gordon in A Faster Scrabble Move Generation
