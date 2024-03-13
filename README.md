@@ -15,8 +15,7 @@ Currently doing refactoring to create an elegant solution for transposition of t
 
 If you want to check it out, assuming you have cargo installed, 
 you can simply run the game with `cargo run`, and the rest is explained in-app.
-The program is currently building the Gaddag if it can't be found at the path specified in the toml 
-at the moment, so the first time will take a little while.
+The program will build the Gaddag if it can't be found at the path specified in the toml, so the first time startup will be slow.
 
 Will definitively want to store the gaddag in the actual binary using include_bytes!, 
 but there are more pressing matters...
