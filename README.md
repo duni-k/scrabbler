@@ -1,4 +1,4 @@
-# Scrabble game with simple TUI written in Rust.
+# Scrabble game with simple TUI
 
 <div align="center">
   <img src="game.png" alt="Screenshot of game"/>
